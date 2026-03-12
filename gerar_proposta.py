@@ -506,21 +506,7 @@ def gerar_docx(dados):
     add_paragraph(doc, "Contabilidade Estratégica & Planejamento Tributário", font_size=8.5, color=LGRAY,
                   alignment=WD_ALIGN_PARAGRAPH.CENTER, space_after=4)
 
-    # Nome do vendedor se disponível
-    vendedor = dados.get("vendedor", "")
-    if vendedor:
-        add_paragraph(doc, "", space_after=20)
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_after = Pt(4)
-        r = p.add_run("_" * 50)
-        r.font.size = Pt(10)
-        r.font.color.rgb = LGRAY
-        r.font.name = "Arial"
-        add_paragraph(doc, vendedor, font_size=10, color=DARK, bold=True,
-                      alignment=WD_ALIGN_PARAGRAPH.CENTER, space_after=2)
-        add_paragraph(doc, "Consultor Comercial", font_size=8.5, color=LGRAY,
-                      alignment=WD_ALIGN_PARAGRAPH.CENTER, space_after=4)
+    # Vendedor registrado para referência interna (não aparece na assinatura)
 
     # Aceite do cliente
     add_paragraph(doc, "", space_after=20)
