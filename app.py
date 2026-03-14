@@ -8,6 +8,11 @@ import json
 import os
 from datetime import datetime, date
 from gerar_proposta import gerar_docx
+from sheets_db import (
+    sheets_disponivel, load_propostas, save_proposta,
+    update_proposta_status, delete_proposta,
+    load_config_sheets, save_config_sheets
+)
 
 # ===== CONFIG =====
 st.set_page_config(
@@ -17,23 +22,30 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo.png")
+USING_SHEETS = sheets_disponivel()
+
+# ===== DATABASE (fallback local + Google Sheets) =====
 DB_FILE = os.path.join(os.path.dirname(__file__), "propostas_db.json")
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config.json")
-LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo.png")
 
-# ===== DATABASE =====
 def load_db():
+    if USING_SHEETS:
+        return load_propostas()
     if os.path.exists(DB_FILE):
         with open(DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return []
 
 def save_db(data):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    if not USING_SHEETS:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
 def load_config():
-    default = {"meta_mensal": 50000, "vendedores": ["Allan", "Vendedor 2"]}
+    if USING_SHEETS:
+        return load_config_sheets()
+    default = {"meta_mensal": 12000, "vendedores": ["Allan"]}
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r", encoding="utf-8") as f:
             cfg = json.load(f)
@@ -45,8 +57,11 @@ def load_config():
     return default
 
 def save_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    if USING_SHEETS:
+        save_config_sheets(cfg)
+    else:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 def fc(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -577,8 +592,7 @@ with tab_nova:
             )
 
             total_valor = sum(s["valor"] for s in svcs_parsed)
-            db = load_db()
-            db.insert(0, {
+            nova_proposta = {
                 "id": int(datetime.now().timestamp() * 1000),
                 "data": datetime.now().strftime("%Y-%m-%d"),
                 "cliente": nome_cliente,
@@ -590,8 +604,14 @@ with tab_nova:
                 "valor": total_valor,
                 "status": "Enviada",
                 "obs": obs_internas
-            })
-            save_db(db)
+            }
+
+            if USING_SHEETS:
+                save_proposta(nova_proposta)
+            else:
+                db = load_db()
+                db.insert(0, nova_proposta)
+                save_db(db)
 
 
 # ==========================================
@@ -654,19 +674,25 @@ with tab_hist:
                         key=f"status_{p['id']}"
                     )
                     if new_status != status:
-                        for item in db:
-                            if item["id"] == p["id"]:
-                                item["status"] = new_status
-                                break
-                        save_db(db)
+                        if USING_SHEETS:
+                            update_proposta_status(p["id"], new_status)
+                        else:
+                            for item in db:
+                                if item["id"] == p["id"]:
+                                    item["status"] = new_status
+                                    break
+                            save_db(db)
                         st.rerun()
 
                 if p.get("obs"):
                     st.write(f"**Observações:** {p['obs']}")
 
                 if st.button(f"🗑️ Excluir", key=f"del_{p['id']}"):
-                    db = [item for item in db if item["id"] != p["id"]]
-                    save_db(db)
+                    if USING_SHEETS:
+                        delete_proposta(p["id"])
+                    else:
+                        db = [item for item in db if item["id"] != p["id"]]
+                        save_db(db)
                     st.rerun()
 
 
