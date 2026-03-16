@@ -66,6 +66,16 @@ def save_config(cfg):
 def fc(valor):
     return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+def get_avatar_html(nome, fotos_dict=None):
+    """Gera HTML de avatar: foto se disponível, ou iniciais coloridas."""
+    if fotos_dict and nome in fotos_dict and fotos_dict[nome]:
+        return f'<img src="{fotos_dict[nome]}" class="ranking-avatar" alt="{nome}">'
+    # Gerar cor baseada no nome
+    cores = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316']
+    cor = cores[sum(ord(c) for c in nome) % len(cores)]
+    iniciais = "".join(p[0].upper() for p in nome.split()[:2]) if nome else "?"
+    return f'<div class="ranking-initials" style="background:{cor};">{iniciais}</div>'
+
 # ===== CUSTOM CSS =====
 st.markdown("""
 <style>
@@ -210,6 +220,27 @@ st.markdown("""
     .ranking-2 { background: #e5e7eb; color: #6b7280; }
     .ranking-3 { background: #fde8d0; color: #c2703e; }
     .ranking-other { background: #f3f4f6; color: #9ca3af; }
+    .ranking-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        margin-right: 12px;
+        object-fit: cover;
+        border: 2px solid #e5e7eb;
+    }
+    .ranking-initials {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 14px;
+        color: white;
+        margin-right: 12px;
+        flex-shrink: 0;
+    }
     .ranking-name {
         flex: 1;
         font-weight: 600;
@@ -325,6 +356,10 @@ with tab_dash:
         progresso_cap = min(progresso, 100)
         falta = max(meta_mensal - receita_mes, 0)
 
+        # Reset celebração quando meta volta a ser < 100%
+        if progresso < 100 and "meta_celebrada" in st.session_state:
+            del st.session_state.meta_celebrada
+
         if progresso >= 100:
             bar_class = "progress-green"
             emoji_status = "🏆"
@@ -362,6 +397,32 @@ with tab_dash:
         </div>
         """, unsafe_allow_html=True)
 
+        # 🎵 Celebração com confetti e som quando meta é batida
+        if progresso >= 100 and "meta_celebrada" not in st.session_state:
+            st.session_state.meta_celebrada = True
+            st.balloons()
+            import streamlit.components.v1 as components
+            components.html("""
+            <audio autoplay>
+                <source src="https://assets.mixkit.co/active_storage/sfx/2018/2018-preview.mp3" type="audio/mpeg">
+            </audio>
+            <script>
+                const colors = ['#b8960c','#d4af37','#10b981','#3b82f6','#f59e0b','#ef4444'];
+                for(let w=0;w<3;w++){
+                    setTimeout(()=>{
+                        for(let i=0;i<40;i++){
+                            const c=document.createElement('div');
+                            c.style.cssText=`position:fixed;width:${Math.random()*10+5}px;height:${Math.random()*10+5}px;background:${colors[Math.floor(Math.random()*colors.length)]};left:${Math.random()*100}vw;top:-20px;opacity:1;border-radius:${Math.random()>.5?'50%':'2px'};z-index:9999;pointer-events:none;`;
+                            document.body.appendChild(c);
+                            const d=Math.random()*3000+2000;
+                            c.animate([{transform:'translateY(0) rotate(0)',opacity:1},{transform:'translateY(100vh) rotate(720deg)',opacity:0}],{duration:d,fill:'forwards'});
+                            setTimeout(()=>c.remove(),d);
+                        }
+                    },w*600);
+                }
+            </script>
+            """, height=0)
+
     with col_mes:
         st.markdown('<div class="section-title">📅 Mês Atual</div>', unsafe_allow_html=True)
         st.markdown(f"""
@@ -390,6 +451,7 @@ with tab_dash:
 
     with col_rank:
         st.markdown('<div class="section-title">🏅 Ranking de Vendedores</div>', unsafe_allow_html=True)
+        fotos_vendedores = config.get("vendedores_fotos", {})
         vendedores = {}
         for p in db:
             v = p.get("vendedor", "Sem vendedor")
@@ -409,9 +471,11 @@ with tab_dash:
                 pos_class = f"ranking-{pos}" if pos <= 3 else "ranking-other"
                 medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(pos, f"{pos}º")
                 conv = (stats['fechou'] / stats['total'] * 100) if stats['total'] > 0 else 0
+                avatar = get_avatar_html(nome, fotos_vendedores)
                 st.markdown(f"""
                 <div class="ranking-row">
                     <div class="ranking-pos {pos_class}">{medal if pos <= 3 else pos}</div>
+                    {avatar}
                     <div class="ranking-name">{nome}</div>
                     <div class="ranking-stats">
                         {stats['total']} proposta{'s' if stats['total'] != 1 else ''} · {stats['fechou']} fechada{'s' if stats['fechou'] != 1 else ''} · {conv:.0f}% conv.<br>
@@ -721,10 +785,37 @@ with tab_config:
         height=120
     )
 
+    # 📸 Upload de fotos dos vendedores
+    st.markdown('<div class="section-title">📸 Fotos dos Vendedores</div>', unsafe_allow_html=True)
+    st.caption("Faça upload da foto de cada vendedor (aparece no ranking)")
+    vendedores_atuais = [v.strip() for v in vendedores_text.split("\n") if v.strip()]
+    fotos_atuais = config.get("vendedores_fotos", {})
+
+    import base64
+    fotos_novas = dict(fotos_atuais)
+    for vend in vendedores_atuais:
+        col_foto_preview, col_foto_upload = st.columns([1, 3])
+        with col_foto_preview:
+            avatar_html = get_avatar_html(vend, fotos_atuais)
+            st.markdown(f'<div style="display:flex;align-items:center;height:60px;justify-content:center;">{avatar_html}</div>', unsafe_allow_html=True)
+        with col_foto_upload:
+            foto_file = st.file_uploader(
+                f"Foto de {vend}",
+                type=["png", "jpg", "jpeg"],
+                key=f"foto_{vend}",
+                label_visibility="collapsed"
+            )
+            if foto_file is not None:
+                foto_bytes = foto_file.read()
+                foto_b64 = base64.b64encode(foto_bytes).decode()
+                ext = foto_file.type.split("/")[-1]
+                fotos_novas[vend] = f"data:image/{ext};base64,{foto_b64}"
+
     if st.button("💾 Salvar Configurações", type="primary", use_container_width=True):
         vendedores_lista = [v.strip() for v in vendedores_text.split("\n") if v.strip()]
         config["meta_mensal"] = nova_meta
         config["vendedores"] = vendedores_lista
+        config["vendedores_fotos"] = fotos_novas
         save_config(config)
         st.success("✅ Configurações salvas com sucesso!")
         st.rerun()
