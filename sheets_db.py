@@ -1,10 +1,12 @@
 """
 Módulo de persistência com Google Sheets
 Azevedo Contabilidade
+Com cache para performance otimizada
 """
 
 import json
 import streamlit as st
+from time import time
 
 try:
     import gspread
@@ -26,9 +28,15 @@ HEADERS_PROPOSTAS = [
 
 HEADERS_CONFIG = ["chave", "valor"]
 
+# Cache TTL em segundos (2 minutos)
+CACHE_TTL = 120
 
-def get_client():
-    """Retorna cliente gspread autenticado via st.secrets"""
+
+# ===== CONEXÃO COM CACHE =====
+
+@st.cache_resource(ttl=300)
+def _get_client():
+    """Retorna cliente gspread autenticado (cacheado por 5 min)"""
     if not GSPREAD_AVAILABLE:
         return None
     try:
@@ -39,8 +47,11 @@ def get_client():
         return None
 
 
-def get_spreadsheet(client):
-    """Abre a planilha pelo ID em st.secrets"""
+def _get_spreadsheet():
+    """Abre a planilha (usa cliente cacheado)"""
+    client = _get_client()
+    if not client:
+        return None
     try:
         sheet_id = st.secrets.get("spreadsheet_id", "")
         if sheet_id:
@@ -50,40 +61,78 @@ def get_spreadsheet(client):
         return None
 
 
-def init_sheets(spreadsheet):
-    """Garante que as abas existam com os headers corretos"""
-    # Aba Propostas
-    try:
-        ws = spreadsheet.worksheet("Propostas")
-    except gspread.WorksheetNotFound:
-        ws = spreadsheet.add_worksheet("Propostas", rows=1000, cols=len(HEADERS_PROPOSTAS))
-        ws.append_row(HEADERS_PROPOSTAS)
+def _init_sheets_if_needed(sp):
+    """Garante que as abas existam (verifica uma vez por sessão)"""
+    if st.session_state.get("_sheets_initialized"):
+        return True
 
-    # Aba Config
     try:
-        ws_cfg = spreadsheet.worksheet("Config")
-    except gspread.WorksheetNotFound:
-        ws_cfg = spreadsheet.add_worksheet("Config", rows=50, cols=2)
-        ws_cfg.append_row(HEADERS_CONFIG)
-        ws_cfg.append_row(["meta_mensal", "12000"])
-        ws_cfg.append_row(["vendedores", json.dumps(["Allan"])])
+        try:
+            sp.worksheet("Propostas")
+        except gspread.WorksheetNotFound:
+            ws = sp.add_worksheet("Propostas", rows=1000, cols=len(HEADERS_PROPOSTAS))
+            ws.append_row(HEADERS_PROPOSTAS)
 
-    return True
+        try:
+            sp.worksheet("Config")
+        except gspread.WorksheetNotFound:
+            ws_cfg = sp.add_worksheet("Config", rows=50, cols=2)
+            ws_cfg.append_row(HEADERS_CONFIG)
+            ws_cfg.append_row(["meta_mensal", "12000"])
+            ws_cfg.append_row(["vendedores", json.dumps(["Allan"])])
+
+        st.session_state["_sheets_initialized"] = True
+        return True
+    except Exception:
+        return False
+
+
+# ===== CACHE DE DADOS =====
+
+def _cache_valid(key):
+    """Verifica se o cache ainda é válido"""
+    ts = st.session_state.get(f"_cache_ts_{key}", 0)
+    return (time() - ts) < CACHE_TTL
+
+
+def _set_cache(key, data):
+    """Salva dados no cache da sessão"""
+    st.session_state[f"_cache_{key}"] = data
+    st.session_state[f"_cache_ts_{key}"] = time()
+
+
+def _get_cache(key):
+    """Retorna dados do cache se válido"""
+    if _cache_valid(key):
+        return st.session_state.get(f"_cache_{key}")
+    return None
+
+
+def invalidate_cache(key=None):
+    """Invalida o cache (chamado após salvar/atualizar)"""
+    if key:
+        st.session_state.pop(f"_cache_{key}", None)
+        st.session_state.pop(f"_cache_ts_{key}", None)
+    else:
+        # Invalida tudo
+        keys_to_remove = [k for k in st.session_state if k.startswith("_cache_")]
+        for k in keys_to_remove:
+            del st.session_state[k]
 
 
 # ===== PROPOSTAS =====
 
 def load_propostas():
-    """Carrega todas as propostas do Google Sheets"""
-    client = get_client()
-    if not client:
-        return []
+    """Carrega todas as propostas (com cache)"""
+    cached = _get_cache("propostas")
+    if cached is not None:
+        return cached
 
-    sp = get_spreadsheet(client)
+    sp = _get_spreadsheet()
     if not sp:
         return []
 
-    init_sheets(sp)
+    _init_sheets_if_needed(sp)
 
     try:
         ws = sp.worksheet("Propostas")
@@ -97,6 +146,7 @@ def load_propostas():
                 r["id"] = int(r.get("id", 0))
             except:
                 r["id"] = 0
+        _set_cache("propostas", records)
         return records
     except Exception:
         return []
@@ -104,20 +154,17 @@ def load_propostas():
 
 def save_proposta(proposta):
     """Adiciona uma nova proposta ao Google Sheets"""
-    client = get_client()
-    if not client:
-        return False
-
-    sp = get_spreadsheet(client)
+    sp = _get_spreadsheet()
     if not sp:
         return False
 
-    init_sheets(sp)
+    _init_sheets_if_needed(sp)
 
     try:
         ws = sp.worksheet("Propostas")
         row = [proposta.get(h, "") for h in HEADERS_PROPOSTAS]
-        ws.insert_rows([row], row=2)  # Insere após o header (mais recente primeiro)
+        ws.insert_rows([row], row=2)
+        invalidate_cache("propostas")
         return True
     except Exception:
         return False
@@ -125,11 +172,7 @@ def save_proposta(proposta):
 
 def update_proposta_status(proposta_id, novo_status):
     """Atualiza o status de uma proposta"""
-    client = get_client()
-    if not client:
-        return False
-
-    sp = get_spreadsheet(client)
+    sp = _get_spreadsheet()
     if not sp:
         return False
 
@@ -139,6 +182,7 @@ def update_proposta_status(proposta_id, novo_status):
         if cell:
             status_col = HEADERS_PROPOSTAS.index("status") + 1
             ws.update_cell(cell.row, status_col, novo_status)
+            invalidate_cache("propostas")
             return True
     except Exception:
         pass
@@ -147,11 +191,7 @@ def update_proposta_status(proposta_id, novo_status):
 
 def delete_proposta(proposta_id):
     """Exclui uma proposta"""
-    client = get_client()
-    if not client:
-        return False
-
-    sp = get_spreadsheet(client)
+    sp = _get_spreadsheet()
     if not sp:
         return False
 
@@ -160,6 +200,7 @@ def delete_proposta(proposta_id):
         cell = ws.find(str(proposta_id), in_column=1)
         if cell:
             ws.delete_rows(cell.row)
+            invalidate_cache("propostas")
             return True
     except Exception:
         pass
@@ -169,18 +210,18 @@ def delete_proposta(proposta_id):
 # ===== CONFIG =====
 
 def load_config_sheets():
-    """Carrega configurações do Google Sheets"""
+    """Carrega configurações (com cache)"""
     default = {"meta_mensal": 12000, "vendedores": ["Allan"]}
 
-    client = get_client()
-    if not client:
-        return default
+    cached = _get_cache("config")
+    if cached is not None:
+        return cached
 
-    sp = get_spreadsheet(client)
+    sp = _get_spreadsheet()
     if not sp:
         return default
 
-    init_sheets(sp)
+    _init_sheets_if_needed(sp)
 
     try:
         ws = sp.worksheet("Config")
@@ -205,8 +246,7 @@ def load_config_sheets():
                 except:
                     config["vendedores_fotos"] = {}
             elif chave.startswith("foto_"):
-                # Fotos individuais (para fotos grandes divididas por vendedor)
-                nome_vendedor = chave[5:]  # Remove "foto_"
+                nome_vendedor = chave[5:]
                 if "vendedores_fotos" not in config:
                     config["vendedores_fotos"] = {}
                 config["vendedores_fotos"][nome_vendedor] = valor
@@ -216,6 +256,8 @@ def load_config_sheets():
         for k, v in default.items():
             if k not in config:
                 config[k] = v
+
+        _set_cache("config", config)
         return config
     except Exception:
         return default
@@ -223,11 +265,7 @@ def load_config_sheets():
 
 def save_config_sheets(config):
     """Salva configurações no Google Sheets"""
-    client = get_client()
-    if not client:
-        return False
-
-    sp = get_spreadsheet(client)
+    sp = _get_spreadsheet()
     if not sp:
         return False
 
@@ -245,6 +283,7 @@ def save_config_sheets(config):
                 if foto_b64:
                     ws.append_row([f"foto_{nome}", foto_b64])
 
+        invalidate_cache("config")
         return True
     except Exception:
         return False
@@ -254,8 +293,5 @@ def save_config_sheets(config):
 
 def sheets_disponivel():
     """Verifica se o Google Sheets está configurado e acessível"""
-    client = get_client()
-    if not client:
-        return False
-    sp = get_spreadsheet(client)
+    sp = _get_spreadsheet()
     return sp is not None
