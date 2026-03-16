@@ -199,6 +199,17 @@ def load_config_sheets():
                     config["vendedores"] = json.loads(valor)
                 except:
                     config["vendedores"] = [valor] if valor else ["Allan"]
+            elif chave == "vendedores_fotos":
+                try:
+                    config["vendedores_fotos"] = json.loads(valor)
+                except:
+                    config["vendedores_fotos"] = {}
+            elif chave.startswith("foto_"):
+                # Fotos individuais (para fotos grandes divididas por vendedor)
+                nome_vendedor = chave[5:]  # Remove "foto_"
+                if "vendedores_fotos" not in config:
+                    config["vendedores_fotos"] = {}
+                config["vendedores_fotos"][nome_vendedor] = valor
             else:
                 config[chave] = valor
 
@@ -226,6 +237,14 @@ def save_config_sheets(config):
         ws.append_row(HEADERS_CONFIG)
         ws.append_row(["meta_mensal", str(config.get("meta_mensal", 12000))])
         ws.append_row(["vendedores", json.dumps(config.get("vendedores", ["Allan"]))])
+
+        # Salvar fotos dos vendedores (cada foto em uma linha separada)
+        fotos = config.get("vendedores_fotos", {})
+        if fotos:
+            for nome, foto_b64 in fotos.items():
+                if foto_b64:
+                    ws.append_row([f"foto_{nome}", foto_b64])
+
         return True
     except Exception:
         return False
