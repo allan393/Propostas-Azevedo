@@ -742,7 +742,9 @@ with tab_hist:
                             st.session_state[f"show_motivo_{p['id']}"] = True
                         else:
                             if USING_SHEETS:
-                                update_proposta_status(p["id"], new_status)
+                                ok, msg = update_proposta_status(p["id"], new_status)
+                                if not ok:
+                                    st.error(f"Erro ao alterar status: {msg}")
                             else:
                                 for item in db:
                                     if item["id"] == p["id"]:
@@ -764,9 +766,14 @@ with tab_hist:
                     with col_salvar:
                         if st.button("✅ Confirmar", key=f"confirmar_motivo_{p['id']}"):
                             if motivo.strip():
-                                historico_ant = p.get("historico", "")
+                                historico_ant = str(p.get("historico", "") or "")
                                 if USING_SHEETS:
-                                    update_proposta_status(p["id"], "Não Fechou", motivo.strip(), historico_ant)
+                                    ok, msg = update_proposta_status(p["id"], "Não Fechou", motivo.strip(), historico_ant)
+                                    if not ok:
+                                        st.error(f"Erro ao salvar: {msg}")
+                                    else:
+                                        st.session_state.pop(f"show_motivo_{p['id']}", None)
+                                        st.rerun()
                                 else:
                                     for item in db:
                                         if item["id"] == p["id"]:
@@ -777,8 +784,8 @@ with tab_hist:
                                             item["historico"] = f"{historico_ant} | {nova_entrada}" if historico_ant else nova_entrada
                                             break
                                     save_db(db)
-                                st.session_state.pop(f"show_motivo_{p['id']}", None)
-                                st.rerun()
+                                    st.session_state.pop(f"show_motivo_{p['id']}", None)
+                                    st.rerun()
                             else:
                                 st.warning("Preencha o motivo antes de confirmar.")
                     with col_cancelar:
@@ -810,7 +817,12 @@ with tab_hist:
                                 if motivo_add.strip():
                                     historico_ant = str(p.get("historico", "") or "")
                                     if USING_SHEETS:
-                                        update_proposta_status(p["id"], "Não Fechou", motivo_add.strip(), historico_ant)
+                                        ok, msg = update_proposta_status(p["id"], "Não Fechou", motivo_add.strip(), historico_ant)
+                                        if not ok:
+                                            st.error(f"Erro ao salvar motivo: {msg}")
+                                        else:
+                                            st.session_state.pop(f"add_motivo_{p['id']}", None)
+                                            st.rerun()
                                     else:
                                         for item in db:
                                             if item["id"] == p["id"]:
@@ -820,8 +832,8 @@ with tab_hist:
                                                 item["historico"] = f"{historico_ant} | {nova_entrada}" if historico_ant else nova_entrada
                                                 break
                                         save_db(db)
-                                    st.session_state.pop(f"add_motivo_{p['id']}", None)
-                                    st.rerun()
+                                        st.session_state.pop(f"add_motivo_{p['id']}", None)
+                                        st.rerun()
                                 else:
                                     st.warning("Preencha o motivo.")
                         with col_c:

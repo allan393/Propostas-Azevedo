@@ -63,7 +63,7 @@ def _get_spreadsheet():
 
 def _init_sheets_if_needed(sp):
     """Garante que as abas existam e que os headers estejam atualizados"""
-    if st.session_state.get("_sheets_initialized"):
+    if st.session_state.get("_sheets_initialized") and st.session_state.get("_sheets_migrated_v2"):
         return True
 
     try:
@@ -91,8 +91,10 @@ def _init_sheets_if_needed(sp):
             ws_cfg.append_row(["vendedores", json.dumps(["Allan"])])
 
         st.session_state["_sheets_initialized"] = True
+        st.session_state["_sheets_migrated_v2"] = True
         return True
-    except Exception:
+    except Exception as e:
+        st.session_state["_sheets_init_error"] = str(e)
         return False
 
 
@@ -183,36 +185,40 @@ def update_proposta_status(proposta_id, novo_status, motivo="", historico_anteri
     """Atualiza o status de uma proposta, com motivo de perda e histórico"""
     sp = _get_spreadsheet()
     if not sp:
-        return False
+        return False, "Não foi possível conectar ao Google Sheets"
 
     try:
+        # Garantir que os headers estejam atualizados antes de atualizar
+        _init_sheets_if_needed(sp)
+
         ws = sp.worksheet("Propostas")
         cell = ws.find(str(proposta_id), in_column=1)
-        if cell:
-            status_col = HEADERS_PROPOSTAS.index("status") + 1
-            ws.update_cell(cell.row, status_col, novo_status)
+        if not cell:
+            return False, f"Proposta ID {proposta_id} não encontrada na planilha"
 
-            # Salvar motivo de perda se status for "Não Fechou"
-            if novo_status == "Não Fechou" and motivo:
-                motivo_col = HEADERS_PROPOSTAS.index("motivo_perda") + 1
-                ws.update_cell(cell.row, motivo_col, motivo)
+        status_col = HEADERS_PROPOSTAS.index("status") + 1
+        ws.update_cell(cell.row, status_col, novo_status)
 
-                # Adicionar ao histórico
-                from datetime import datetime
-                data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
-                nova_entrada = f"[{data_hora}] {motivo}"
-                if historico_anterior:
-                    historico_completo = f"{historico_anterior} | {nova_entrada}"
-                else:
-                    historico_completo = nova_entrada
-                hist_col = HEADERS_PROPOSTAS.index("historico") + 1
-                ws.update_cell(cell.row, hist_col, historico_completo)
+        # Salvar motivo de perda se status for "Não Fechou"
+        if novo_status == "Não Fechou" and motivo:
+            motivo_col = HEADERS_PROPOSTAS.index("motivo_perda") + 1
+            ws.update_cell(cell.row, motivo_col, motivo)
 
-            invalidate_cache("propostas")
-            return True
-    except Exception:
-        pass
-    return False
+            # Adicionar ao histórico
+            from datetime import datetime
+            data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            nova_entrada = f"[{data_hora}] {motivo}"
+            if historico_anterior:
+                historico_completo = f"{historico_anterior} | {nova_entrada}"
+            else:
+                historico_completo = nova_entrada
+            hist_col = HEADERS_PROPOSTAS.index("historico") + 1
+            ws.update_cell(cell.row, hist_col, historico_completo)
+
+        invalidate_cache("propostas")
+        return True, "OK"
+    except Exception as e:
+        return False, f"Erro ao atualizar: {str(e)}"
 
 
 def delete_proposta(proposta_id):
