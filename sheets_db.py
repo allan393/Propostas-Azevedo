@@ -23,7 +23,7 @@ SCOPES = [
 
 HEADERS_PROPOSTAS = [
     "id", "data", "cliente", "tratamento", "telefone", "email",
-    "vendedor", "servicos", "valor", "status", "obs"
+    "vendedor", "servicos", "valor", "status", "obs", "motivo_perda", "historico"
 ]
 
 HEADERS_CONFIG = ["chave", "valor"]
@@ -170,8 +170,8 @@ def save_proposta(proposta):
         return False
 
 
-def update_proposta_status(proposta_id, novo_status):
-    """Atualiza o status de uma proposta"""
+def update_proposta_status(proposta_id, novo_status, motivo="", historico_anterior=""):
+    """Atualiza o status de uma proposta, com motivo de perda e histórico"""
     sp = _get_spreadsheet()
     if not sp:
         return False
@@ -182,6 +182,23 @@ def update_proposta_status(proposta_id, novo_status):
         if cell:
             status_col = HEADERS_PROPOSTAS.index("status") + 1
             ws.update_cell(cell.row, status_col, novo_status)
+
+            # Salvar motivo de perda se status for "Não Fechou"
+            if novo_status == "Não Fechou" and motivo:
+                motivo_col = HEADERS_PROPOSTAS.index("motivo_perda") + 1
+                ws.update_cell(cell.row, motivo_col, motivo)
+
+                # Adicionar ao histórico
+                from datetime import datetime
+                data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                nova_entrada = f"[{data_hora}] {motivo}"
+                if historico_anterior:
+                    historico_completo = f"{historico_anterior} | {nova_entrada}"
+                else:
+                    historico_completo = nova_entrada
+                hist_col = HEADERS_PROPOSTAS.index("historico") + 1
+                ws.update_cell(cell.row, hist_col, historico_completo)
+
             invalidate_cache("propostas")
             return True
     except Exception:
