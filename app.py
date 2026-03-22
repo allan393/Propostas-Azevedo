@@ -738,18 +738,66 @@ with tab_hist:
                         key=f"status_{p['id']}"
                     )
                     if new_status != status:
-                        if USING_SHEETS:
-                            update_proposta_status(p["id"], new_status)
+                        if new_status == "Não Fechou":
+                            st.session_state[f"show_motivo_{p['id']}"] = True
                         else:
-                            for item in db:
-                                if item["id"] == p["id"]:
-                                    item["status"] = new_status
-                                    break
-                            save_db(db)
-                        st.rerun()
+                            if USING_SHEETS:
+                                update_proposta_status(p["id"], new_status)
+                            else:
+                                for item in db:
+                                    if item["id"] == p["id"]:
+                                        item["status"] = new_status
+                                        break
+                                save_db(db)
+                            st.rerun()
 
+                # Campo de motivo quando muda para "Não Fechou"
+                if st.session_state.get(f"show_motivo_{p['id']}", False):
+                    st.markdown("---")
+                    st.markdown("⚠️ **Por que não fechou?**")
+                    motivo = st.text_area(
+                        "Descreva o motivo da perda",
+                        placeholder="Ex: Preço alto, foi para concorrente, não respondeu mais, empresa fechou...",
+                        key=f"motivo_{p['id']}"
+                    )
+                    col_salvar, col_cancelar = st.columns(2)
+                    with col_salvar:
+                        if st.button("✅ Confirmar", key=f"confirmar_motivo_{p['id']}"):
+                            if motivo.strip():
+                                historico_ant = p.get("historico", "")
+                                if USING_SHEETS:
+                                    update_proposta_status(p["id"], "Não Fechou", motivo.strip(), historico_ant)
+                                else:
+                                    for item in db:
+                                        if item["id"] == p["id"]:
+                                            item["status"] = "Não Fechou"
+                                            item["motivo_perda"] = motivo.strip()
+                                            data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                                            nova_entrada = f"[{data_hora}] {motivo.strip()}"
+                                            item["historico"] = f"{historico_ant} | {nova_entrada}" if historico_ant else nova_entrada
+                                            break
+                                    save_db(db)
+                                st.session_state.pop(f"show_motivo_{p['id']}", None)
+                                st.rerun()
+                            else:
+                                st.warning("Preencha o motivo antes de confirmar.")
+                    with col_cancelar:
+                        if st.button("❌ Cancelar", key=f"cancelar_motivo_{p['id']}"):
+                            st.session_state.pop(f"show_motivo_{p['id']}", None)
+                            st.rerun()
+
+                # Exibir observações gerais
                 if p.get("obs"):
                     st.write(f"**Observações:** {p['obs']}")
+
+                # Exibir motivo da perda e histórico
+                if p.get("motivo_perda"):
+                    st.markdown(f"🔴 **Motivo da perda:** {p['motivo_perda']}")
+                if p.get("historico"):
+                    with st.expander("📋 Histórico de observações"):
+                        entradas = p["historico"].split(" | ")
+                        for entrada in entradas:
+                            st.markdown(f"- {entrada}")
 
                 if st.button(f"🗑️ Excluir", key=f"del_{p['id']}"):
                     if USING_SHEETS:
