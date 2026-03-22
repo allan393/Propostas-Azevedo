@@ -791,13 +791,54 @@ with tab_hist:
                     st.write(f"**Observações:** {p['obs']}")
 
                 # Exibir motivo da perda e histórico
-                if p.get("motivo_perda"):
-                    st.markdown(f"🔴 **Motivo da perda:** {p['motivo_perda']}")
-                if p.get("historico"):
-                    with st.expander("📋 Histórico de observações"):
-                        entradas = p["historico"].split(" | ")
-                        for entrada in entradas:
-                            st.markdown(f"- {entrada}")
+                if status == "Não Fechou":
+                    if p.get("motivo_perda"):
+                        st.markdown(f"🔴 **Último motivo:** {p['motivo_perda']}")
+                    else:
+                        st.info("📝 Nenhum motivo de perda registrado para esta proposta.")
+
+                    # Botão para adicionar/atualizar motivo
+                    if st.session_state.get(f"add_motivo_{p['id']}", False):
+                        motivo_add = st.text_area(
+                            "Descreva o motivo da perda",
+                            placeholder="Ex: Preço alto, foi para concorrente, não respondeu mais...",
+                            key=f"motivo_add_{p['id']}"
+                        )
+                        col_s, col_c = st.columns(2)
+                        with col_s:
+                            if st.button("✅ Salvar", key=f"salvar_add_{p['id']}"):
+                                if motivo_add.strip():
+                                    historico_ant = str(p.get("historico", "") or "")
+                                    if USING_SHEETS:
+                                        update_proposta_status(p["id"], "Não Fechou", motivo_add.strip(), historico_ant)
+                                    else:
+                                        for item in db:
+                                            if item["id"] == p["id"]:
+                                                item["motivo_perda"] = motivo_add.strip()
+                                                data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                                                nova_entrada = f"[{data_hora}] {motivo_add.strip()}"
+                                                item["historico"] = f"{historico_ant} | {nova_entrada}" if historico_ant else nova_entrada
+                                                break
+                                        save_db(db)
+                                    st.session_state.pop(f"add_motivo_{p['id']}", None)
+                                    st.rerun()
+                                else:
+                                    st.warning("Preencha o motivo.")
+                        with col_c:
+                            if st.button("❌ Cancelar", key=f"cancelar_add_{p['id']}"):
+                                st.session_state.pop(f"add_motivo_{p['id']}", None)
+                                st.rerun()
+                    else:
+                        if st.button("📝 Adicionar/Atualizar motivo", key=f"btn_add_motivo_{p['id']}"):
+                            st.session_state[f"add_motivo_{p['id']}"] = True
+                            st.rerun()
+
+                    if p.get("historico"):
+                        with st.expander("📋 Histórico de observações"):
+                            entradas = str(p["historico"]).split(" | ")
+                            for entrada in entradas:
+                                if entrada.strip():
+                                    st.markdown(f"- {entrada}")
 
                 if st.button(f"🗑️ Excluir", key=f"del_{p['id']}"):
                     if USING_SHEETS:

@@ -62,13 +62,22 @@ def _get_spreadsheet():
 
 
 def _init_sheets_if_needed(sp):
-    """Garante que as abas existam (verifica uma vez por sessão)"""
+    """Garante que as abas existam e que os headers estejam atualizados"""
     if st.session_state.get("_sheets_initialized"):
         return True
 
     try:
         try:
-            sp.worksheet("Propostas")
+            ws = sp.worksheet("Propostas")
+            # Verificar se os headers estão atualizados (migração)
+            existing_headers = ws.row_values(1)
+            missing = [h for h in HEADERS_PROPOSTAS if h not in existing_headers]
+            if missing:
+                # Adicionar colunas faltantes
+                for col_name in missing:
+                    next_col = len(existing_headers) + 1
+                    ws.update_cell(1, next_col, col_name)
+                    existing_headers.append(col_name)
         except gspread.WorksheetNotFound:
             ws = sp.add_worksheet("Propostas", rows=1000, cols=len(HEADERS_PROPOSTAS))
             ws.append_row(HEADERS_PROPOSTAS)
