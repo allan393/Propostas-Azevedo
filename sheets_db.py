@@ -73,6 +73,10 @@ def _init_sheets_if_needed(sp):
             existing_headers = ws.row_values(1)
             missing = [h for h in HEADERS_PROPOSTAS if h not in existing_headers]
             if missing:
+                # Expandir a planilha se necessario
+                total_cols_needed = len(existing_headers) + len(missing)
+                if ws.col_count < total_cols_needed:
+                    ws.resize(cols=total_cols_needed)
                 # Adicionar colunas faltantes
                 for col_name in missing:
                     next_col = len(existing_headers) + 1
