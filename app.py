@@ -333,13 +333,30 @@ with tab_dash:
     meta_mensal = config.get("meta_mensal", 50000)
 
     # ===== HELPER: extrair itens aprovados com data_aprovacao =====
+    def _parse_data(data_str):
+        """Converte data para formato YYYY-MM-DD se necessário"""
+        if not data_str:
+            return ""
+        data_str = str(data_str).strip()
+        # Já no formato correto
+        if len(data_str) >= 10 and data_str[4] == "-":
+            return data_str[:10]
+        # Formato DD/MM/YYYY
+        if "/" in data_str:
+            parts = data_str.split("/")
+            if len(parts) == 3 and len(parts[2]) == 4:
+                return f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
+        return data_str
+
     def extrair_itens_aprovados(propostas):
         """Retorna lista de dicts com: vendedor, valor, data_aprovacao, descricao"""
         itens = []
         for p in propostas:
             sd = p.get("servicos_detalhados", "")
             vendedor = p.get("vendedor", "Sem vendedor") or "Sem vendedor"
-            if sd:
+            data_proposta = _parse_data(p.get("data", ""))
+
+            if sd and sd.strip().startswith("["):
                 try:
                     svcs = json.loads(sd)
                     for s in svcs:
@@ -347,20 +364,29 @@ with tab_dash:
                             itens.append({
                                 "vendedor": vendedor,
                                 "valor": s.get("valor", 0),
-                                "data_aprovacao": s.get("data_aprovacao", p.get("data", "")),
+                                "data_aprovacao": _parse_data(s.get("data_aprovacao", "")) or data_proposta,
                                 "descricao": s.get("descricao", ""),
                                 "cliente": p.get("cliente", "-"),
                                 "periodicidade": s.get("periodicidade", "-")
                             })
                 except Exception:
-                    pass
+                    # Se o JSON der erro, trata como proposta antiga
+                    if p.get("status") in ("Fechou", "Fechou Parcial") and p.get("valor", 0) > 0:
+                        itens.append({
+                            "vendedor": vendedor,
+                            "valor": p.get("valor", 0),
+                            "data_aprovacao": data_proposta,
+                            "descricao": p.get("servicos", "-"),
+                            "cliente": p.get("cliente", "-"),
+                            "periodicidade": "-"
+                        })
             else:
-                # Proposta antiga sem servicos_detalhados
-                if p.get("status") in ("Fechou", "Fechou Parcial"):
+                # Proposta antiga sem servicos_detalhados — valor integral
+                if p.get("status") in ("Fechou", "Fechou Parcial") and p.get("valor", 0) > 0:
                     itens.append({
                         "vendedor": vendedor,
                         "valor": p.get("valor", 0),
-                        "data_aprovacao": p.get("data", ""),
+                        "data_aprovacao": data_proposta,
                         "descricao": p.get("servicos", "-"),
                         "cliente": p.get("cliente", "-"),
                         "periodicidade": "-"
@@ -387,7 +413,7 @@ with tab_dash:
     receita_mes = sum(i["valor"] for i in itens_mes)
 
     # Propostas criadas no mês selecionado (para contagem)
-    db_mes = [p for p in db if p.get("data", "").startswith(prefixo_mes)]
+    db_mes = [p for p in db if _parse_data(p.get("data", "")).startswith(prefixo_mes)]
     total_mes = len(db_mes)
 
     # Métricas gerais (todas as propostas, não filtrado por mês)
@@ -775,13 +801,17 @@ with tab_hist:
                     val_aprovado = 0
                     val_total = p.get("valor", 0)
                     sd = p.get("servicos_detalhados", "")
-                    if sd:
+                    if sd and sd.strip().startswith("["):
                         try:
                             svcs = json.loads(sd)
                             val_aprovado = sum(s.get("valor", 0) for s in svcs if s.get("status") == "Aprovado")
                             val_total = sum(s.get("valor", 0) for s in svcs)
                         except Exception:
-                            val_aprovado = val_total if p.get("status") == "Fechou" else 0
+                            val_aprovado = val_total if p.get("status") in ("Fechou", "Fechou Parcial") else 0
+                    else:
+                        # Proposta antiga — valor integral se fechou
+                        if p.get("status") in ("Fechou", "Fechou Parcial"):
+                            val_aprovado = val_total
                     writer.writerow([
                         p.get("data", ""), p.get("cliente", ""), p.get("servicos", ""),
                         str(val_aprovado).replace(".", ","),
@@ -809,13 +839,19 @@ with tab_hist:
             sd_str = p.get("servicos_detalhados", "")
             valor_aprovado = 0
             valor_total = p.get("valor", 0)
-            if sd_str:
+            if sd_str and sd_str.strip().startswith("["):
                 try:
                     svcs_det = json.loads(sd_str)
                     valor_aprovado = sum(s.get("valor", 0) for s in svcs_det if s.get("status") == "Aprovado")
-                    valor_total = sum(s.get("valor", 0) for s in svcs_det)
+                    valor_total_calc = sum(s.get("valor", 0) for s in svcs_det)
+                    if valor_total_calc > 0:
+                        valor_total = valor_total_calc
                 except Exception:
-                    valor_aprovado = valor_total if status == "Fechou" else 0
+                    valor_aprovado = valor_total if status in ("Fechou", "Fechou Parcial") else 0
+            else:
+                # Proposta antiga — valor integral se fechou
+                if status in ("Fechou", "Fechou Parcial"):
+                    valor_aprovado = valor_total
 
             valor_display = fc(valor_aprovado) if valor_aprovado > 0 else fc(valor_total)
             label_extra = f" (aprovado: {fc(valor_aprovado)})" if valor_aprovado > 0 and valor_aprovado != valor_total else ""
