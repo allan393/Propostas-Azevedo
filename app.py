@@ -359,11 +359,37 @@ with tab_dash:
             if sd and sd.strip().startswith("["):
                 try:
                     svcs = json.loads(sd)
-                    for s in svcs:
-                        if s.get("status") == "Aprovado":
+                    itens_aprovados = [s for s in svcs if s.get("status") == "Aprovado"]
+                    soma_itens = sum(s.get("valor", 0) for s in itens_aprovados)
+                    valor_proposta = p.get("valor", 0)
+
+                    if itens_aprovados and soma_itens > 0:
+                        # Itens têm valores individuais — usar normalmente
+                        for s in itens_aprovados:
                             itens.append({
                                 "vendedor": vendedor,
                                 "valor": s.get("valor", 0),
+                                "data_aprovacao": _parse_data(s.get("data_aprovacao", "")) or data_proposta,
+                                "descricao": s.get("descricao", ""),
+                                "cliente": p.get("cliente", "-"),
+                                "periodicidade": s.get("periodicidade", "-")
+                            })
+                    elif itens_aprovados and soma_itens == 0 and valor_proposta > 0:
+                        # Itens aprovados com valor 0 mas proposta tem valor — usar valor da proposta
+                        itens.append({
+                            "vendedor": vendedor,
+                            "valor": valor_proposta,
+                            "data_aprovacao": _parse_data(itens_aprovados[0].get("data_aprovacao", "")) or data_proposta,
+                            "descricao": p.get("servicos", "-"),
+                            "cliente": p.get("cliente", "-"),
+                            "periodicidade": "-"
+                        })
+                    elif itens_aprovados:
+                        # Itens aprovados mas tudo zerado — registra pelo menos o item
+                        for s in itens_aprovados:
+                            itens.append({
+                                "vendedor": vendedor,
+                                "valor": 0,
                                 "data_aprovacao": _parse_data(s.get("data_aprovacao", "")) or data_proposta,
                                 "descricao": s.get("descricao", ""),
                                 "cliente": p.get("cliente", "-"),
