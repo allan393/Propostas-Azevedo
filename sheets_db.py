@@ -155,7 +155,13 @@ def load_propostas():
         records = ws.get_all_records()
         for r in records:
             try:
-                r["valor"] = float(str(r.get("valor", 0)).replace(",", "."))
+                val_str = str(r.get("valor", 0)).strip().replace("R$", "").replace(" ", "")
+                # Formato brasileiro: 5.850,00 (ponto=milhar, vírgula=decimal)
+                if "," in val_str and "." in val_str:
+                    val_str = val_str.replace(".", "").replace(",", ".")
+                elif "," in val_str:
+                    val_str = val_str.replace(",", ".")
+                r["valor"] = float(val_str) if val_str else 0.0
             except:
                 r["valor"] = 0.0
             try:
