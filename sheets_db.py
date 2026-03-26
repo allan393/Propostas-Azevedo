@@ -1,5 +1,5 @@
 """
-Módulo de persistência com Google Sheets
+MÃ³dulo de persistÃªncia com Google Sheets
 Azevedo Contabilidade
 Com cache para performance otimizada
 """
@@ -33,7 +33,7 @@ HEADERS_CONFIG = ["chave", "valor"]
 CACHE_TTL = 120
 
 
-# ===== CONEXÃO COM CACHE =====
+# ===== CONEXÃO COM CACHE =====
 
 @st.cache_resource(ttl=300)
 def _get_client():
@@ -70,11 +70,11 @@ def _init_sheets_if_needed(sp):
     try:
         try:
             ws = sp.worksheet("Propostas")
-            # Verificar se os headers estão atualizados (migração)
+            # Verificar se os headers estÃ£o atualizados (migraÃ§Ã£o)
             existing_headers = ws.row_values(1)
             missing = [h for h in HEADERS_PROPOSTAS if h not in existing_headers]
             if missing:
-                # Expandir a planilha se necessário
+                # Expandir a planilha se necessÃ¡rio
                 total_cols_needed = len(existing_headers) + len(missing)
                 if ws.col_count < total_cols_needed:
                     ws.resize(cols=total_cols_needed)
@@ -106,26 +106,26 @@ def _init_sheets_if_needed(sp):
 # ===== CACHE DE DADOS =====
 
 def _cache_valid(key):
-    """Verifica se o cache ainda é válido"""
+    """Verifica se o cache ainda Ã© vÃ¡lido"""
     ts = st.session_state.get(f"_cache_ts_{key}", 0)
     return (time() - ts) < CACHE_TTL
 
 
 def _set_cache(key, data):
-    """Salva dados no cache da sessão"""
+    """Salva dados no cache da sessÃ£o"""
     st.session_state[f"_cache_{key}"] = data
     st.session_state[f"_cache_ts_{key}"] = time()
 
 
 def _get_cache(key):
-    """Retorna dados do cache se válido"""
+    """Retorna dados do cache se vÃ¡lido"""
     if _cache_valid(key):
         return st.session_state.get(f"_cache_{key}")
     return None
 
 
 def invalidate_cache(key=None):
-    """Invalida o cache (chamado após salvar/atualizar)"""
+    """Invalida o cache (chamado apÃ³s salvar/atualizar)"""
     if key:
         st.session_state.pop(f"_cache_{key}", None)
         st.session_state.pop(f"_cache_ts_{key}", None)
@@ -156,7 +156,7 @@ def load_propostas():
         for r in records:
             try:
                 val_str = str(r.get("valor", 0)).strip().replace("R$", "").replace(" ", "")
-                # Formato brasileiro: 5.850,00 (ponto=milhar, vírgula=decimal)
+                # Formato brasileiro: 5.850,00 (ponto=milhar, vÃ­rgula=decimal)
                 if "," in val_str and "." in val_str:
                     val_str = val_str.replace(".", "").replace(",", ".")
                 elif "," in val_str:
@@ -193,10 +193,10 @@ def save_proposta(proposta):
 
 
 def update_proposta_status(proposta_id, novo_status, motivo="", historico_anterior=""):
-    """Atualiza o status de uma proposta, com motivo de perda e histórico"""
+    """Atualiza o status de uma proposta, com motivo de perda e histÃ³rico"""
     sp = _get_spreadsheet()
     if not sp:
-        return False, "Não foi possível conectar ao Google Sheets"
+        return False, "NÃ£o foi possÃ­vel conectar ao Google Sheets"
 
     try:
         # Garantir que os headers estejam atualizados antes de atualizar
@@ -205,17 +205,17 @@ def update_proposta_status(proposta_id, novo_status, motivo="", historico_anteri
         ws = sp.worksheet("Propostas")
         cell = ws.find(str(proposta_id), in_column=1)
         if not cell:
-            return False, f"Proposta ID {proposta_id} não encontrada na planilha"
+            return False, f"Proposta ID {proposta_id} nÃ£o encontrada na planilha"
 
         status_col = HEADERS_PROPOSTAS.index("status") + 1
         ws.update_cell(cell.row, status_col, novo_status)
 
-        # Salvar motivo de perda se status for "Não Fechou"
-        if novo_status == "Não Fechou" and motivo:
+        # Salvar motivo de perda se status for "NÃ£o Fechou"
+        if novo_status == "NÃ£o Fechou" and motivo:
             motivo_col = HEADERS_PROPOSTAS.index("motivo_perda") + 1
             ws.update_cell(cell.row, motivo_col, motivo)
 
-            # Adicionar ao histórico
+            # Adicionar ao histÃ³rico
             from datetime import datetime
             data_hora = datetime.now().strftime("%d/%m/%Y %H:%M")
             nova_entrada = f"[{data_hora}] {motivo}"
@@ -233,22 +233,22 @@ def update_proposta_status(proposta_id, novo_status, motivo="", historico_anteri
 
 
 def update_servicos_detalhados(proposta_id, servicos_detalhados_json):
-    """Atualiza os serviços detalhados (status individual por item) de uma proposta.
+    """Atualiza os serviÃ§os detalhados (status individual por item) de uma proposta.
     Automaticamente registra data_aprovacao quando item muda para Aprovado."""
     from datetime import datetime
 
     sp = _get_spreadsheet()
     if not sp:
-        return False, "Não foi possível conectar ao Google Sheets"
+        return False, "NÃ£o foi possÃ­vel conectar ao Google Sheets"
 
     try:
         _init_sheets_if_needed(sp)
         ws = sp.worksheet("Propostas")
         cell = ws.find(str(proposta_id), in_column=1)
         if not cell:
-            return False, f"Proposta ID {proposta_id} não encontrada"
+            return False, f"Proposta ID {proposta_id} nÃ£o encontrada"
 
-        # Carregar serviços atuais para comparar e registrar data_aprovacao
+        # Carregar serviÃ§os atuais para comparar e registrar data_aprovacao
         try:
             servicos = json.loads(servicos_detalhados_json)
             hoje = datetime.now().strftime("%Y-%m-%d")
@@ -265,13 +265,27 @@ def update_servicos_detalhados(proposta_id, servicos_detalhados_json):
         ws.update_cell(cell.row, sd_col, servicos_detalhados_json)
 
         # Recalcular valor aprovado e atualizar coluna valor
+        # PROTEÃÃO: NÃO sobrescrever quando itens tÃªm valor 0 mas proposta tem valor real
         try:
             servicos = json.loads(servicos_detalhados_json)
             valor_aprovado = sum(
                 s.get("valor", 0) for s in servicos if s.get("status") == "Aprovado"
             )
             valor_col = HEADERS_PROPOSTAS.index("valor") + 1
-            ws.update_cell(cell.row, valor_col, valor_aprovado)
+            if valor_aprovado > 0:
+                # Itens tÃªm valores reais â atualizar normalmente
+                ws.update_cell(cell.row, valor_col, valor_aprovado)
+            else:
+                # Valor calculado Ã© 0 â verificar se jÃ¡ existe valor na planilha
+                valor_atual = ws.cell(cell.row, valor_col).value
+                try:
+                    val_atual_float = float(str(valor_atual).replace("R$", "").replace(" ", "").replace(".", "").replace(",", ".")) if valor_atual else 0
+                except Exception:
+                    val_atual_float = 0
+                if val_atual_float <= 0:
+                    # NÃ£o hÃ¡ valor existente, pode zerar
+                    ws.update_cell(cell.row, valor_col, 0)
+                # Se val_atual_float > 0, NÃO sobrescreve (preserva o valor original)
         except Exception:
             pass
 
@@ -282,7 +296,7 @@ def update_servicos_detalhados(proposta_id, servicos_detalhados_json):
             if all(s == "Aprovado" for s in statuses):
                 novo_status = "Fechou"
             elif all(s in ("Recusado", "Expirado") for s in statuses):
-                novo_status = "Não Fechou"
+                novo_status = "NÃ£o Fechou"
             elif any(s == "Aprovado" for s in statuses):
                 novo_status = "Fechou Parcial"
             else:
@@ -295,7 +309,7 @@ def update_servicos_detalhados(proposta_id, servicos_detalhados_json):
         invalidate_cache("propostas")
         return True, "OK"
     except Exception as e:
-        return False, f"Erro ao atualizar serviços: {str(e)}"
+        return False, f"Erro ao atualizar serviÃ§os: {str(e)}"
 
 
 def expirar_itens_pendentes(dias=30):
@@ -364,7 +378,7 @@ def delete_proposta(proposta_id):
 # ===== CONFIG =====
 
 def load_config_sheets():
-    """Carrega configurações (com cache)"""
+    """Carrega configuraÃ§Ãµes (com cache)"""
     default = {"meta_mensal": 12000, "vendedores": ["Allan"]}
 
     cached = _get_cache("config")
@@ -418,7 +432,7 @@ def load_config_sheets():
 
 
 def save_config_sheets(config):
-    """Salva configurações no Google Sheets"""
+    """Salva configuraÃ§Ãµes no Google Sheets"""
     sp = _get_spreadsheet()
     if not sp:
         return False
@@ -443,9 +457,9 @@ def save_config_sheets(config):
         return False
 
 
-# ===== VERIFICAÇÃO =====
+# ===== VERIFICAÃÃO =====
 
 def sheets_disponivel():
-    """Verifica se o Google Sheets está configurado e acessível"""
+    """Verifica se o Google Sheets estÃ¡ configurado e acessÃ­vel"""
     sp = _get_spreadsheet()
     return sp is not None
