@@ -322,7 +322,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ===== TABS =====
-tab_dash, tab_nova, tab_hist, tab_config = st.tabs(["📊 Dashboard", "📄 Nova Proposta", "📋 Histórico", "⚙️ Configurações"])
+tab_dash, tab_nova, tab_hist, tab_comissao, tab_config = st.tabs(["📊 Dashboard", "📄 Nova Proposta", "📋 Histórico", "💰 Comissões", "⚙️ Configurações"])
 
 # ==========================================
 # TAB: DASHBOARD
@@ -1078,6 +1078,386 @@ with tab_hist:
                         db = [item for item in db if item["id"] != p["id"]]
                         save_db(db)
                     st.rerun()
+
+
+# ==========================================
+# TAB: COMISSÕES
+# ==========================================
+with tab_comissao:
+    db_com = load_db()
+    config_com = load_config()
+
+    st.markdown("#### 💰 Relatório de Comissões")
+    st.caption("Receita item a item — Mensal (Recorrente) vs Avulso — para conferência de comissões")
+
+    # ===== HELPER local: extrair itens com periodicidade =====
+    def _parse_data_com(data_str):
+        if not data_str:
+            return ""
+        data_str = str(data_str).strip()
+        if len(data_str) >= 10 and data_str[4] == "-":
+            return data_str[:10]
+        if "/" in data_str:
+            parts = data_str.split("/")
+            if len(parts) == 3 and len(parts[2]) == 4:
+                return f"{parts[2]}-{parts[1].zfill(2)}-{parts[0].zfill(2)}"
+        return data_str
+
+    def extrair_itens_comissao(propostas):
+        """Retorna lista de dicts com todos os campos necessários para comissão"""
+        itens = []
+        for p in propostas:
+            sd = p.get("servicos_detalhados", "")
+            vendedor = p.get("vendedor", "Sem vendedor") or "Sem vendedor"
+            data_proposta = _parse_data_com(p.get("data", ""))
+            cliente = p.get("cliente", "-")
+
+            if sd and str(sd).strip().startswith("["):
+                try:
+                    svcs = json.loads(sd)
+                    itens_aprovados = [s for s in svcs if s.get("status") == "Aprovado"]
+                    soma_itens = sum(s.get("valor", 0) for s in itens_aprovados)
+                    valor_proposta = p.get("valor", 0)
+
+                    if itens_aprovados and soma_itens > 0:
+                        for s in itens_aprovados:
+                            per = s.get("periodicidade", "-")
+                            tipo = "Mensal" if per == "Mensal" else "Avulso"
+                            itens.append({
+                                "cliente": cliente,
+                                "descricao": s.get("descricao", "-"),
+                                "valor": s.get("valor", 0),
+                                "periodicidade": per,
+                                "tipo": tipo,
+                                "vendedor": vendedor,
+                                "data_aprovacao": _parse_data_com(s.get("data_aprovacao", "")) or data_proposta,
+                            })
+                    elif itens_aprovados and soma_itens == 0 and valor_proposta > 0:
+                        itens.append({
+                            "cliente": cliente,
+                            "descricao": p.get("servicos", "-"),
+                            "valor": valor_proposta,
+                            "periodicidade": "-",
+                            "tipo": "Avulso",
+                            "vendedor": vendedor,
+                            "data_aprovacao": _parse_data_com(itens_aprovados[0].get("data_aprovacao", "")) or data_proposta,
+                        })
+                except Exception:
+                    if p.get("status") in ("Fechou", "Fechou Parcial") and p.get("valor", 0) > 0:
+                        itens.append({
+                            "cliente": cliente,
+                            "descricao": p.get("servicos", "-"),
+                            "valor": p.get("valor", 0),
+                            "periodicidade": "-",
+                            "tipo": "Avulso",
+                            "vendedor": vendedor,
+                            "data_aprovacao": data_proposta,
+                        })
+            else:
+                if p.get("status") in ("Fechou", "Fechou Parcial") and p.get("valor", 0) > 0:
+                    itens.append({
+                        "cliente": cliente,
+                        "descricao": p.get("servicos", "-"),
+                        "valor": p.get("valor", 0),
+                        "periodicidade": "-",
+                        "tipo": "Avulso",
+                        "vendedor": vendedor,
+                        "data_aprovacao": data_proposta,
+                    })
+        return itens
+
+    todos_itens_com = extrair_itens_comissao(db_com)
+
+    # ===== FILTROS =====
+    st.markdown('<div class="section-title">📅 Filtros</div>', unsafe_allow_html=True)
+    col_f1, col_f2, col_f3 = st.columns([1, 1, 1])
+    meses_nomes_com = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                       "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    with col_f1:
+        mes_com = st.selectbox("Mês", range(1, 13), index=date.today().month - 1,
+                               format_func=lambda x: meses_nomes_com[x-1], key="com_mes")
+    with col_f2:
+        ano_com = st.number_input("Ano", min_value=2024, max_value=2030, value=date.today().year, key="com_ano")
+    with col_f3:
+        vendedores_com = config_com.get("vendedores", ["Allan"])
+        vendedor_filtro = st.selectbox("Vendedor", ["Todos"] + vendedores_com, key="com_vendedor")
+
+    prefixo_com = f"{ano_com}-{mes_com:02d}"
+
+    # Filtrar por mês
+    itens_filtrados = [i for i in todos_itens_com if i["data_aprovacao"].startswith(prefixo_com)]
+
+    # Filtrar por vendedor
+    if vendedor_filtro != "Todos":
+        itens_filtrados = [i for i in itens_filtrados if i["vendedor"] == vendedor_filtro]
+
+    # Separar Mensal vs Avulso
+    itens_mensal = [i for i in itens_filtrados if i["tipo"] == "Mensal"]
+    itens_avulso = [i for i in itens_filtrados if i["tipo"] == "Avulso"]
+    total_mensal = sum(i["valor"] for i in itens_mensal)
+    total_avulso = sum(i["valor"] for i in itens_avulso)
+    total_geral = total_mensal + total_avulso
+
+    # ===== CARDS DE RESUMO =====
+    col_r1, col_r2, col_r3 = st.columns(3)
+    with col_r1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">🔄</div>
+            <div class="metric-label">Receita Mensal (Recorrente)</div>
+            <div class="metric-value" style="color:#10b981;">{fc(total_mensal)}</div>
+            <div style="font-size:12px; color:#9ca3af; margin-top:4px;">{len(itens_mensal)} {'item' if len(itens_mensal) == 1 else 'itens'}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_r2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">📌</div>
+            <div class="metric-label">Receita Avulsa (Única/Trim/Anual)</div>
+            <div class="metric-value" style="color:#3b82f6;">{fc(total_avulso)}</div>
+            <div style="font-size:12px; color:#9ca3af; margin-top:4px;">{len(itens_avulso)} {'item' if len(itens_avulso) == 1 else 'itens'}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_r3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">💰</div>
+            <div class="metric-label">Total Fechado no Período</div>
+            <div class="metric-value">{fc(total_geral)}</div>
+            <div style="font-size:12px; color:#9ca3af; margin-top:4px;">{len(itens_filtrados)} {'item' if len(itens_filtrados) == 1 else 'itens'} aprovados</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ===== TABELA MENSAL =====
+    if itens_mensal:
+        st.markdown("##### 🔄 Receita Mensal (Recorrente)")
+        for idx, item in enumerate(itens_mensal):
+            st.markdown(f"""
+            <div style="display:flex; align-items:center; padding:10px 16px; background:white; border-radius:10px; margin-bottom:6px; border-left:4px solid #10b981; border:1px solid #f0f0f0;">
+                <div style="flex:2;">
+                    <strong style="color:#1a2744; font-size:14px;">{item['cliente']}</strong><br>
+                    <span style="color:#6b7280; font-size:12px;">{item['descricao']}</span>
+                </div>
+                <div style="flex:1; text-align:center;">
+                    <span style="color:#9ca3af; font-size:11px;">Vendedor</span><br>
+                    <span style="font-weight:600; color:#1a2744; font-size:13px;">{item['vendedor']}</span>
+                </div>
+                <div style="flex:1; text-align:center;">
+                    <span style="color:#9ca3af; font-size:11px;">Periodicidade</span><br>
+                    <span style="font-weight:500; font-size:13px; color:#10b981;">{item['periodicidade']}</span>
+                </div>
+                <div style="flex:1; text-align:right;">
+                    <span style="font-weight:700; color:#10b981; font-size:15px;">{fc(item['valor'])}</span><br>
+                    <span style="color:#9ca3af; font-size:11px;">{item['data_aprovacao']}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="text-align:right; padding:8px 16px; font-weight:700; color:#10b981; font-size:16px;">
+            Subtotal Mensal: {fc(total_mensal)}
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.info("Nenhum serviço mensal (recorrente) aprovado neste período.")
+
+    st.markdown("")
+
+    # ===== TABELA AVULSO =====
+    if itens_avulso:
+        st.markdown("##### 📌 Receita Avulsa")
+        for idx, item in enumerate(itens_avulso):
+            st.markdown(f"""
+            <div style="display:flex; align-items:center; padding:10px 16px; background:white; border-radius:10px; margin-bottom:6px; border-left:4px solid #3b82f6; border:1px solid #f0f0f0;">
+                <div style="flex:2;">
+                    <strong style="color:#1a2744; font-size:14px;">{item['cliente']}</strong><br>
+                    <span style="color:#6b7280; font-size:12px;">{item['descricao']}</span>
+                </div>
+                <div style="flex:1; text-align:center;">
+                    <span style="color:#9ca3af; font-size:11px;">Vendedor</span><br>
+                    <span style="font-weight:600; color:#1a2744; font-size:13px;">{item['vendedor']}</span>
+                </div>
+                <div style="flex:1; text-align:center;">
+                    <span style="color:#9ca3af; font-size:11px;">Periodicidade</span><br>
+                    <span style="font-weight:500; font-size:13px; color:#3b82f6;">{item['periodicidade']}</span>
+                </div>
+                <div style="flex:1; text-align:right;">
+                    <span style="font-weight:700; color:#3b82f6; font-size:15px;">{fc(item['valor'])}</span><br>
+                    <span style="color:#9ca3af; font-size:11px;">{item['data_aprovacao']}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="text-align:right; padding:8px 16px; font-weight:700; color:#3b82f6; font-size:16px;">
+            Subtotal Avulso: {fc(total_avulso)}
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.info("Nenhum serviço avulso aprovado neste período.")
+
+    st.markdown("---")
+
+    # ===== RESUMO POR VENDEDOR =====
+    if itens_filtrados:
+        st.markdown("##### 👥 Resumo por Vendedor")
+        vendedores_resumo = {}
+        for item in itens_filtrados:
+            v = item["vendedor"]
+            if v not in vendedores_resumo:
+                vendedores_resumo[v] = {"mensal": 0, "avulso": 0, "total": 0, "qtd": 0}
+            vendedores_resumo[v]["total"] += item["valor"]
+            vendedores_resumo[v]["qtd"] += 1
+            if item["tipo"] == "Mensal":
+                vendedores_resumo[v]["mensal"] += item["valor"]
+            else:
+                vendedores_resumo[v]["avulso"] += item["valor"]
+
+        for v, dados in sorted(vendedores_resumo.items(), key=lambda x: x[1]["total"], reverse=True):
+            st.markdown(f"""
+            <div style="display:flex; align-items:center; padding:14px 20px; background:white; border-radius:12px; margin-bottom:8px; border:1px solid #f0f0f0;">
+                <div style="flex:1;">
+                    <strong style="color:#1a2744; font-size:15px;">{v}</strong>
+                    <span style="color:#9ca3af; font-size:12px; margin-left:8px;">{dados['qtd']} {'item' if dados['qtd'] == 1 else 'itens'}</span>
+                </div>
+                <div style="text-align:center; margin-right:24px;">
+                    <span style="color:#9ca3af; font-size:10px; text-transform:uppercase;">Mensal</span><br>
+                    <span style="font-weight:600; color:#10b981;">{fc(dados['mensal'])}</span>
+                </div>
+                <div style="text-align:center; margin-right:24px;">
+                    <span style="color:#9ca3af; font-size:10px; text-transform:uppercase;">Avulso</span><br>
+                    <span style="font-weight:600; color:#3b82f6;">{fc(dados['avulso'])}</span>
+                </div>
+                <div style="text-align:right;">
+                    <span style="color:#9ca3af; font-size:10px; text-transform:uppercase;">Total</span><br>
+                    <span style="font-weight:700; color:#1a2744; font-size:16px;">{fc(dados['total'])}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # ===== EXPORTAR EXCEL =====
+    if itens_filtrados:
+        st.markdown("##### 📥 Exportar para Excel")
+        try:
+            import io
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+            wb = openpyxl.Workbook()
+
+            # --- Aba: Detalhado ---
+            ws = wb.active
+            ws.title = "Detalhado"
+
+            header_font = Font(bold=True, color="FFFFFF", size=11)
+            header_fill = PatternFill(start_color="1a2744", end_color="1a2744", fill_type="solid")
+            mensal_fill = PatternFill(start_color="dcfce7", end_color="dcfce7", fill_type="solid")
+            avulso_fill = PatternFill(start_color="dbeafe", end_color="dbeafe", fill_type="solid")
+            thin_border = Border(
+                left=Side(style='thin'), right=Side(style='thin'),
+                top=Side(style='thin'), bottom=Side(style='thin')
+            )
+            money_fmt = '#,##0.00'
+
+            headers = ["Cliente", "Descrição", "Valor (R$)", "Periodicidade", "Tipo", "Vendedor", "Data Aprovação"]
+            for col, h in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=h)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = Alignment(horizontal="center")
+                cell.border = thin_border
+
+            for row_idx, item in enumerate(itens_filtrados, 2):
+                ws.cell(row=row_idx, column=1, value=item["cliente"]).border = thin_border
+                ws.cell(row=row_idx, column=2, value=item["descricao"]).border = thin_border
+                c_val = ws.cell(row=row_idx, column=3, value=item["valor"])
+                c_val.number_format = money_fmt
+                c_val.border = thin_border
+                ws.cell(row=row_idx, column=4, value=item["periodicidade"]).border = thin_border
+                c_tipo = ws.cell(row=row_idx, column=5, value=item["tipo"])
+                c_tipo.border = thin_border
+                c_tipo.fill = mensal_fill if item["tipo"] == "Mensal" else avulso_fill
+                ws.cell(row=row_idx, column=6, value=item["vendedor"]).border = thin_border
+                ws.cell(row=row_idx, column=7, value=item["data_aprovacao"]).border = thin_border
+
+            # Linha de total
+            last_row = len(itens_filtrados) + 2
+            ws.cell(row=last_row, column=2, value="TOTAL").font = Font(bold=True, size=12)
+            c_total = ws.cell(row=last_row, column=3, value=total_geral)
+            c_total.font = Font(bold=True, size=12)
+            c_total.number_format = money_fmt
+
+            # Ajustar largura das colunas
+            ws.column_dimensions['A'].width = 25
+            ws.column_dimensions['B'].width = 40
+            ws.column_dimensions['C'].width = 15
+            ws.column_dimensions['D'].width = 15
+            ws.column_dimensions['E'].width = 12
+            ws.column_dimensions['F'].width = 18
+            ws.column_dimensions['G'].width = 16
+
+            # --- Aba: Resumo por Vendedor ---
+            ws2 = wb.create_sheet("Resumo por Vendedor")
+            headers2 = ["Vendedor", "Mensal (R$)", "Avulso (R$)", "Total (R$)", "Qtd Itens"]
+            for col, h in enumerate(headers2, 1):
+                cell = ws2.cell(row=1, column=col, value=h)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = Alignment(horizontal="center")
+                cell.border = thin_border
+
+            vendedores_resumo_xl = {}
+            for item in itens_filtrados:
+                v = item["vendedor"]
+                if v not in vendedores_resumo_xl:
+                    vendedores_resumo_xl[v] = {"mensal": 0, "avulso": 0, "total": 0, "qtd": 0}
+                vendedores_resumo_xl[v]["total"] += item["valor"]
+                vendedores_resumo_xl[v]["qtd"] += 1
+                if item["tipo"] == "Mensal":
+                    vendedores_resumo_xl[v]["mensal"] += item["valor"]
+                else:
+                    vendedores_resumo_xl[v]["avulso"] += item["valor"]
+
+            for row_idx, (v, d) in enumerate(sorted(vendedores_resumo_xl.items(), key=lambda x: x[1]["total"], reverse=True), 2):
+                ws2.cell(row=row_idx, column=1, value=v).border = thin_border
+                c = ws2.cell(row=row_idx, column=2, value=d["mensal"])
+                c.number_format = money_fmt
+                c.border = thin_border
+                c = ws2.cell(row=row_idx, column=3, value=d["avulso"])
+                c.number_format = money_fmt
+                c.border = thin_border
+                c = ws2.cell(row=row_idx, column=4, value=d["total"])
+                c.number_format = money_fmt
+                c.border = thin_border
+                c.font = Font(bold=True)
+                ws2.cell(row=row_idx, column=5, value=d["qtd"]).border = thin_border
+
+            ws2.column_dimensions['A'].width = 25
+            ws2.column_dimensions['B'].width = 18
+            ws2.column_dimensions['C'].width = 18
+            ws2.column_dimensions['D'].width = 18
+            ws2.column_dimensions['E'].width = 12
+
+            # Salvar em buffer
+            buffer = io.BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
+
+            nome_arquivo = f"Comissoes_{meses_nomes_com[mes_com-1]}_{ano_com}.xlsx"
+            st.download_button(
+                label=f"📥 Baixar Relatório Excel — {meses_nomes_com[mes_com-1]}/{ano_com}",
+                data=buffer,
+                file_name=nome_arquivo,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+        except ImportError:
+            st.warning("Instale openpyxl para exportar: pip install openpyxl")
+    else:
+        st.info(f"Nenhum item aprovado em {meses_nomes_com[mes_com-1]}/{ano_com}. Ajuste os filtros acima.")
 
 
 # ==========================================
