@@ -302,6 +302,128 @@ st.markdown("""
         border-bottom: 2px solid #f0f0f0;
     }
 
+    /* Highlight / Spotlight Cards */
+    .highlight-card {
+        background: white;
+        border-radius: 16px;
+        padding: 20px 24px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+        border: 1px solid #f0f0f0;
+        position: relative;
+        overflow: hidden;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .highlight-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+    }
+    .highlight-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 4px;
+    }
+    .hl-gold::before { background: linear-gradient(90deg, #b8960c, #d4af37); }
+    .hl-green::before { background: linear-gradient(90deg, #10b981, #34d399); }
+    .hl-blue::before { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+    .hl-purple::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+    .hl-icon {
+        width: 44px; height: 44px;
+        border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 22px;
+        margin-bottom: 12px;
+    }
+    .hl-icon-gold { background: #fef3c7; }
+    .hl-icon-green { background: #d1fae5; }
+    .hl-icon-blue { background: #dbeafe; }
+    .hl-icon-purple { background: #ede9fe; }
+    .hl-label {
+        font-size: 11px;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+    .hl-value {
+        font-size: 20px;
+        font-weight: 800;
+        color: #1a2744;
+        font-family: 'Inter', sans-serif;
+        line-height: 1.2;
+        margin-bottom: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .hl-sub {
+        font-size: 12px;
+        color: #6b7280;
+        line-height: 1.4;
+    }
+    .hl-sub strong { color: #1a2744; }
+    .delta-up { color: #10b981; font-weight: 700; font-size: 12px; }
+    .delta-down { color: #ef4444; font-weight: 700; font-size: 12px; }
+    .delta-neutral { color: #9ca3af; font-weight: 600; font-size: 12px; }
+
+    /* Insight box */
+    .insight-box {
+        background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%);
+        border-radius: 12px;
+        padding: 16px 20px;
+        border-left: 4px solid #3b82f6;
+        margin-top: 8px;
+    }
+    .insight-box p {
+        margin: 0;
+        font-size: 13px;
+        color: #374151;
+        line-height: 1.5;
+    }
+    .insight-box strong { color: #1a2744; }
+
+    /* Funnel */
+    .funnel-step {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 10px;
+    }
+    .funnel-bar-bg {
+        flex: 1;
+        background: #f3f4f6;
+        border-radius: 8px;
+        height: 36px;
+        overflow: hidden;
+        position: relative;
+    }
+    .funnel-bar {
+        height: 100%;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        padding-left: 12px;
+        font-weight: 700;
+        font-size: 13px;
+        color: white;
+        transition: width 0.6s ease;
+    }
+    .funnel-label {
+        width: 100px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #374151;
+        text-align: right;
+    }
+    .funnel-count {
+        width: 40px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #1a2744;
+        text-align: right;
+    }
+
     div[data-testid="stForm"] {
         border: 1px solid #e5e7eb;
         border-radius: 16px;
@@ -445,36 +567,119 @@ with tab_dash:
     # Métricas gerais (todas as propostas, não filtrado por mês)
     total = len(db)
     receita_total = sum(i["valor"] for i in todos_itens_aprov)
-    propostas_com_aprovacao = set()
-    for i in todos_itens_aprov:
-        propostas_com_aprovacao.add(i["cliente"] + i.get("data_aprovacao", ""))
     fechou_count = sum(1 for p in db if p.get("status") in ("Fechou", "Fechou Parcial"))
-    taxa = (fechou_count / total * 100) if total > 0 else 0
+    taxa_geral = (fechou_count / total * 100) if total > 0 else 0
 
-    # ===== MÉTRICAS GERAIS =====
-    st.markdown('<div class="section-title">Visão Geral</div>', unsafe_allow_html=True)
+    # Métricas do MÊS selecionado
+    itens_aprov_mes = len(itens_mes)
+    fechou_mes = sum(1 for p in db_mes if p.get("status") in ("Fechou", "Fechou Parcial"))
+    taxa_mes = (fechou_mes / total_mes * 100) if total_mes > 0 else 0
+    ticket_medio_mes = (receita_mes / itens_aprov_mes) if itens_aprov_mes > 0 else 0
+
+    # Mês anterior para comparação (delta)
+    if mes_sel == 1:
+        mes_ant, ano_ant = 12, ano_sel - 1
+    else:
+        mes_ant, ano_ant = mes_sel - 1, ano_sel
+    prefixo_ant = f"{ano_ant}-{mes_ant:02d}"
+    itens_ant = [i for i in todos_itens_aprov if i["data_aprovacao"].startswith(prefixo_ant)]
+    receita_ant = sum(i["valor"] for i in itens_ant)
+    db_ant = [p for p in db if _parse_data(p.get("data", "")).startswith(prefixo_ant)]
+    fechou_ant = sum(1 for p in db_ant if p.get("status") in ("Fechou", "Fechou Parcial"))
+    taxa_ant = (fechou_ant / len(db_ant) * 100) if len(db_ant) > 0 else 0
+    ticket_ant = (receita_ant / len(itens_ant)) if len(itens_ant) > 0 else 0
+
+    def _delta_html(atual, anterior, fmt="valor"):
+        """Gera HTML de delta comparativo com mês anterior"""
+        if anterior == 0:
+            return '<span class="delta-neutral">—</span>'
+        diff = atual - anterior
+        pct = ((atual - anterior) / anterior * 100) if anterior != 0 else 0
+        if fmt == "pct":
+            txt = f"{abs(diff):.1f}pp"
+        elif fmt == "valor":
+            txt = fc(abs(diff))
+        else:
+            txt = f"{abs(diff):.0f}"
+        if diff > 0:
+            return f'<span class="delta-up">▲ +{txt}</span>'
+        elif diff < 0:
+            return f'<span class="delta-down">▼ -{txt}</span>'
+        return '<span class="delta-neutral">● igual</span>'
+
+    # ===== MELHOR CLIENTE DO PERÍODO =====
+    clientes_mes = {}
+    for item in itens_mes:
+        c = item.get("cliente", "-")
+        if c not in clientes_mes:
+            clientes_mes[c] = {"receita": 0, "itens": 0}
+        clientes_mes[c]["receita"] += item["valor"]
+        clientes_mes[c]["itens"] += 1
+    melhor_cliente = max(clientes_mes.items(), key=lambda x: x[1]["receita"]) if clientes_mes else ("-", {"receita": 0, "itens": 0})
+
+    # ===== SERVIÇO MAIS VENDIDO DO PERÍODO =====
+    servicos_mes = {}
+    for item in itens_mes:
+        desc = item.get("descricao", "-").strip()
+        if desc and desc != "-":
+            # Normalizar nome do serviço (primeira palavra significativa)
+            desc_norm = desc[:50]
+            if desc_norm not in servicos_mes:
+                servicos_mes[desc_norm] = {"count": 0, "receita": 0}
+            servicos_mes[desc_norm]["count"] += 1
+            servicos_mes[desc_norm]["receita"] += item["valor"]
+    melhor_servico = max(servicos_mes.items(), key=lambda x: x[1]["receita"]) if servicos_mes else ("-", {"count": 0, "receita": 0})
+
+    # ===== MÉTRICAS GERAIS (4 cards com delta) =====
+    st.markdown(f'<div class="section-title">📊 Visão Geral — {meses_nomes[mes_sel-1]} {ano_sel}</div>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
 
-    cards = [
-        ("📋", "Total Propostas", str(total), ""),
-        ("✅", "Fechamentos", str(fechou_count), ""),
-        ("📈", "Taxa Conversão", f"{taxa:.1f}%", ""),
-        ("💰", "Receita Aprovada", fc(receita_total), "")
-    ]
-    for col, (icon, label, value, _) in zip([c1, c2, c3, c4], cards):
-        with col:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-icon">{icon}</div>
-                <div class="metric-label">{label}</div>
-                <div class="metric-value">{value}</div>
-            </div>
-            """, unsafe_allow_html=True)
+    with c1:
+        delta_prop = _delta_html(total_mes, len(db_ant), "int")
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">📋</div>
+            <div class="metric-label">Propostas no Mês</div>
+            <div class="metric-value">{total_mes}</div>
+            <div style="margin-top:4px;">{delta_prop} <span style="font-size:11px;color:#9ca3af;">vs mês anterior</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c2:
+        delta_fecha = _delta_html(fechou_mes, fechou_ant, "int")
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">✅</div>
+            <div class="metric-label">Fechamentos</div>
+            <div class="metric-value">{fechou_mes}</div>
+            <div style="margin-top:4px;">{delta_fecha} <span style="font-size:11px;color:#9ca3af;">vs mês anterior</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c3:
+        delta_taxa = _delta_html(taxa_mes, taxa_ant, "pct")
+        cor_taxa = "#10b981" if taxa_mes >= 50 else "#f59e0b" if taxa_mes >= 30 else "#ef4444"
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">📈</div>
+            <div class="metric-label">Taxa de Conversão</div>
+            <div class="metric-value" style="color:{cor_taxa};">{taxa_mes:.1f}%</div>
+            <div style="margin-top:4px;">{delta_taxa} <span style="font-size:11px;color:#9ca3af;">vs mês anterior</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+    with c4:
+        delta_rec = _delta_html(receita_mes, receita_ant)
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-icon">💰</div>
+            <div class="metric-label">Receita Aprovada</div>
+            <div class="metric-value">{fc(receita_mes)}</div>
+            <div style="margin-top:4px;">{delta_rec} <span style="font-size:11px;color:#9ca3af;">vs mês anterior</span></div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("")
 
-    # ===== META + MÊS SELECIONADO =====
-    col_meta, col_mes_info = st.columns([3, 2])
+    # ===== META + DESTAQUES DO PERÍODO =====
+    col_meta, col_destaques = st.columns([3, 2])
 
     with col_meta:
         st.markdown(f'<div class="section-title">🎯 Meta de Vendas — {meses_nomes[mes_sel-1]} {ano_sel}</div>', unsafe_allow_html=True)
@@ -499,7 +704,6 @@ with tab_dash:
             emoji_status = "⚡"
             txt_status = "Vamos acelerar!"
 
-        itens_aprov_mes = len(itens_mes)
         st.markdown(f"""
         <div class="meta-card">
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -528,24 +732,34 @@ with tab_dash:
             st.session_state[cache_key] = True
             st.balloons()
 
-    with col_mes_info:
-        st.markdown(f'<div class="section-title">📅 {meses_nomes[mes_sel-1]} {ano_sel}</div>', unsafe_allow_html=True)
+    with col_destaques:
+        st.markdown(f'<div class="section-title">⭐ Destaques do Período</div>', unsafe_allow_html=True)
+        # Melhor Cliente
         st.markdown(f"""
-        <div class="metric-card" style="margin-bottom:12px;">
-            <div class="metric-label">Propostas Criadas</div>
-            <div class="metric-value">{total_mes}</div>
+        <div class="highlight-card hl-gold" style="margin-bottom:12px;">
+            <div class="hl-icon hl-icon-gold">🏆</div>
+            <div class="hl-label">Melhor Cliente</div>
+            <div class="hl-value">{melhor_cliente[0]}</div>
+            <div class="hl-sub"><strong>{fc(melhor_cliente[1]['receita'])}</strong> · {melhor_cliente[1]['itens']} item(ns)</div>
         </div>
         """, unsafe_allow_html=True)
+        # Serviço Mais Vendido
         st.markdown(f"""
-        <div class="metric-card" style="margin-bottom:12px;">
-            <div class="metric-label">Itens Aprovados</div>
-            <div class="metric-value" style="color:#10b981;">{itens_aprov_mes}</div>
+        <div class="highlight-card hl-green" style="margin-bottom:12px;">
+            <div class="hl-icon hl-icon-green">⭐</div>
+            <div class="hl-label">Serviço Mais Vendido</div>
+            <div class="hl-value" title="{melhor_servico[0]}">{melhor_servico[0][:35]}{'...' if len(melhor_servico[0]) > 35 else ''}</div>
+            <div class="hl-sub"><strong>{fc(melhor_servico[1]['receita'])}</strong> · {melhor_servico[1]['count']}x vendido</div>
         </div>
         """, unsafe_allow_html=True)
+        # Ticket Médio
+        delta_ticket = _delta_html(ticket_medio_mes, ticket_ant)
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-label">Receita Aprovada</div>
-            <div class="metric-value" style="color:#b8960c;">{fc(receita_mes)}</div>
+        <div class="highlight-card hl-purple">
+            <div class="hl-icon hl-icon-purple">💎</div>
+            <div class="hl-label">Ticket Médio</div>
+            <div class="hl-value">{fc(ticket_medio_mes)}</div>
+            <div class="hl-sub">{delta_ticket} <span style="font-size:11px;color:#9ca3af;">vs mês anterior</span></div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -594,29 +808,82 @@ with tab_dash:
             st.info("Nenhum item aprovado neste mês.")
 
     with col_status:
-        st.markdown('<div class="section-title">📊 Status das Propostas</div>', unsafe_allow_html=True)
-        counts = {"Enviada": 0, "Fechou": 0, "Fechou Parcial": 0, "Não Fechou": 0, "Pendente": 0}
-        for p in db:
+        st.markdown(f'<div class="section-title">🔄 Funil de Conversão — {meses_nomes[mes_sel-1]}</div>', unsafe_allow_html=True)
+        # Funil baseado no mês selecionado
+        counts_mes = {"Enviada": 0, "Pendente": 0, "Fechou": 0, "Fechou Parcial": 0, "Não Fechou": 0}
+        for p in db_mes:
             s = p.get("status", "Enviada")
-            if s in counts:
-                counts[s] += 1
+            if s in counts_mes:
+                counts_mes[s] += 1
 
-        colors_map = {"Enviada": "#3b82f6", "Fechou": "#10b981", "Fechou Parcial": "#0284c7", "Não Fechou": "#ef4444", "Pendente": "#f59e0b"}
-
-        for status_name, count in counts.items():
-            pct = (count / total * 100) if total > 0 else 0
-            color = colors_map.get(status_name, "#6b7280")
+        # Funnel steps ordered by pipeline stage
+        funnel_data = [
+            ("Propostas", total_mes, "#6b7280"),
+            ("Enviadas", counts_mes["Enviada"], "#3b82f6"),
+            ("Pendentes", counts_mes["Pendente"], "#f59e0b"),
+            ("Fechou", counts_mes["Fechou"] + counts_mes["Fechou Parcial"], "#10b981"),
+            ("Não Fechou", counts_mes["Não Fechou"], "#ef4444"),
+        ]
+        max_funnel = max(total_mes, 1)
+        for label, count, color in funnel_data:
+            pct = (count / max_funnel * 100) if max_funnel > 0 else 0
+            pct_display = max(pct, 8) if count > 0 else 0
             st.markdown(f"""
-            <div style="margin-bottom:14px;">
-                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                    <span style="font-weight:600; color:#374151; font-size:13px;">{status_name}</span>
-                    <span style="font-weight:700; color:{color}; font-size:13px;">{count}</span>
-                </div>
-                <div style="background:#e5e7eb; border-radius:100px; height:8px; overflow:hidden;">
-                    <div style="height:100%; width:{pct}%; background:{color}; border-radius:100px;"></div>
+            <div class="funnel-step">
+                <div class="funnel-label">{label}</div>
+                <div class="funnel-bar-bg">
+                    <div class="funnel-bar" style="width:{pct_display}%; background:{color};">{count}</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+        # Insight automático
+        if total_mes > 0:
+            if taxa_mes >= 60:
+                insight_txt = f"Excelente! Taxa de <strong>{taxa_mes:.0f}%</strong> de conversão. O time está performando muito bem em {meses_nomes[mes_sel-1]}."
+                insight_emoji = "🚀"
+            elif taxa_mes >= 35:
+                insight_txt = f"Bom desempenho com <strong>{taxa_mes:.0f}%</strong> de conversão. Ainda há espaço para melhorar o follow-up."
+                insight_emoji = "💡"
+            elif taxa_mes > 0:
+                nao_fechou = counts_mes["Não Fechou"]
+                if nao_fechou > fechou_mes:
+                    insight_txt = f"Atenção: <strong>{nao_fechou}</strong> propostas não fecharam vs <strong>{fechou_mes}</strong> fechadas. Revise a abordagem comercial."
+                    insight_emoji = "⚠️"
+                else:
+                    insight_txt = f"Taxa de <strong>{taxa_mes:.0f}%</strong>. Foque no follow-up das <strong>{counts_mes['Enviada'] + counts_mes['Pendente']}</strong> propostas ainda abertas."
+                    insight_emoji = "📌"
+            else:
+                insight_txt = f"Nenhum fechamento ainda em {meses_nomes[mes_sel-1]}. Hora de acelerar o follow-up das <strong>{total_mes}</strong> propostas enviadas!"
+                insight_emoji = "⚡"
+            st.markdown(f"""
+            <div class="insight-box">
+                <p>{insight_emoji} {insight_txt}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ===== TOP CLIENTES DO MÊS (tabela) =====
+    if clientes_mes:
+        st.markdown(f'<div class="section-title">🏅 Top Clientes — {meses_nomes[mes_sel-1]} {ano_sel}</div>', unsafe_allow_html=True)
+        top_clientes = sorted(clientes_mes.items(), key=lambda x: x[1]["receita"], reverse=True)[:5]
+        for pos, (nome_cli, stats_cli) in enumerate(top_clientes, 1):
+            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(pos, f"  {pos}º")
+            pct_meta = (stats_cli['receita'] / meta_mensal * 100) if meta_mensal > 0 else 0
+            st.markdown(f"""
+            <div style="display:flex; align-items:center; padding:10px 16px; background:white; border-radius:10px; margin-bottom:6px; border:1px solid #f0f0f0;">
+                <div style="width:32px; text-align:center; font-size:16px;">{medal}</div>
+                <div style="flex:1; margin-left:12px;">
+                    <strong style="color:#1a2744; font-size:14px;">{nome_cli}</strong>
+                    <span style="color:#9ca3af; font-size:11px; margin-left:8px;">{stats_cli['itens']} serviço(s)</span>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-weight:700; color:#1a2744; font-size:14px;">{fc(stats_cli['receita'])}</div>
+                    <div style="font-size:11px; color:#9ca3af;">{pct_meta:.1f}% da meta</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("")
 
     # ===== ÚLTIMAS PROPOSTAS =====
     if db:
@@ -624,11 +891,13 @@ with tab_dash:
         for p in db[:5]:
             status = p.get("status", "Enviada")
             badge_class = {"Enviada": "status-enviada", "Fechou": "status-fechou", "Fechou Parcial": "status-fechou-parcial", "Não Fechou": "status-nao-fechou", "Pendente": "status-pendente"}.get(status, "status-enviada")
+            vendedor_p = p.get("vendedor", "-")
             st.markdown(f"""
             <div style="display:flex; align-items:center; padding:12px 16px; background:white; border-radius:10px; margin-bottom:8px; border:1px solid #f0f0f0;">
                 <div style="flex:1;">
                     <strong style="color:#1a2744;">{p.get('cliente', '-')}</strong>
                     <span style="color:#9ca3af; font-size:12px; margin-left:8px;">{p.get('data', '')}</span>
+                    <span style="color:#6b7280; font-size:11px; margin-left:8px;">· {vendedor_p}</span>
                 </div>
                 <div style="margin-right:16px; font-weight:700; color:#1a2744;">{fc(p.get('valor', 0))}</div>
                 <span class="status-badge {badge_class}">{status}</span>
