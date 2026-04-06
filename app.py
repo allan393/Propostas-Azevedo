@@ -6,13 +6,16 @@ Rode com: streamlit run app.py
 import streamlit as st
 import json
 import os
+import requests
+import io
 from datetime import datetime, date
 from gerar_proposta import gerar_docx
 from sheets_db import (
     sheets_disponivel, load_propostas, save_proposta,
     update_proposta_status, delete_proposta,
     load_config_sheets, save_config_sheets,
-    update_servicos_detalhados, expirar_itens_pendentes
+    update_servicos_detalhados, expirar_itens_pendentes,
+    update_proposta_autentique
 )
 
 # ===== CONFIG =====
@@ -25,6 +28,164 @@ st.set_page_config(
 
 LOGO_PATH = os.path.join(os.path.dirname(__file__), "logo.png")
 USING_SHEETS = sheets_disponivel()
+
+# ===== AUTENTIQUE API =====
+AUTENTIQUE_API_URL = "https://api.autentique.com.br/v2/graphql"
+AUTENTIQUE_TOKEN = os.environ.get(
+    "AUTENTIQUE_TOKEN",
+    "25746e6bd578d8b5d11713f69027e686c5e07c738d2b9a9b71c1df419f37a4ad"
+)
+AUTENTIQUE_EMAIL_SIGNATARIO = "allan@azevedocontabilidade.com.br"
+
+def enviar_para_autentique(docx_bytes, nome_documento, nome_cliente, email_signatario=AUTENTIQUE_EMAIL_SIGNATARIO):
+    """
+    Envia documento para Autentique para assinatura.
+    - Signatário 1: Allan (via email) — SIGN
+    - Signatário 2: Cliente (via link, só nome) — APPROVE
+    Retorna (sucesso, dados) onde dados contém id do documento e link do cliente.
+    """
+    mutation = """
+    mutation CreateDocumentMutation(
+        $document: DocumentInput!,
+        $signers: [SignerInput!]!,
+        $file: Upload!
+    ) {
+        createDocument(
+            document: $document,
+            signers: $signers,
+            file: $file
+        ) {
+            id
+            name
+            signatures {
+                public_id
+                name
+                email
+                action { name }
+                link { short_link }
+            }
+        }
+    }
+    """
+
+    variables = {
+        "document": {
+            "name": nome_documento,
+            "message": f"Proposta comercial para {nome_cliente} - Azevedo Contabilidade",
+            "reminder": "WEEKLY",
+            "footer": "BOTTOM",
+            "refusable": True,
+            "locale": {
+                "country": "BR",
+                "language": "pt-BR",
+                "timezone": "America/Sao_Paulo",
+                "date_format": "DD_MM_YYYY"
+            }
+        },
+        "signers": [
+            {
+                "email": email_signatario,
+                "action": "SIGN"
+            },
+            {
+                "name": nome_cliente,
+                "action": "APPROVE"
+            }
+        ],
+        "file": None
+    }
+
+    operations = json.dumps({
+        "query": mutation,
+        "variables": variables
+    })
+
+    files_map = json.dumps({"file": ["variables.file"]})
+
+    try:
+        resp = requests.post(
+            AUTENTIQUE_API_URL,
+            headers={"Authorization": f"Bearer {AUTENTIQUE_TOKEN}"},
+            data={
+                "operations": operations,
+                "map": files_map
+            },
+            files={
+                "file": (f"{nome_documento}.docx", io.BytesIO(docx_bytes), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            },
+            timeout=30
+        )
+
+        if resp.status_code != 200:
+            return False, f"Erro HTTP {resp.status_code}: {resp.text[:200]}"
+
+        data = resp.json()
+
+        if "errors" in data:
+            return False, f"Erro API: {data['errors'][0].get('message', str(data['errors']))}"
+
+        doc_data = data.get("data", {}).get("createDocument", {})
+        doc_id = doc_data.get("id", "")
+
+        # Encontrar o link do cliente (signatário sem email = via link)
+        link_cliente = ""
+        for sig in doc_data.get("signatures", []):
+            if sig.get("action", {}).get("name") == "APPROVE" or (not sig.get("email")):
+                link_info = sig.get("link", {})
+                if link_info:
+                    link_cliente = link_info.get("short_link", "")
+                    break
+
+        return True, {
+            "autentique_id": doc_id,
+            "autentique_link": link_cliente,
+            "signatures": doc_data.get("signatures", [])
+        }
+
+    except requests.exceptions.Timeout:
+        return False, "Timeout: o Autentique demorou para responder."
+    except Exception as e:
+        return False, f"Erro ao enviar: {str(e)}"
+
+
+def consultar_autentique(doc_id):
+    """Consulta status do documento no Autentique"""
+    query = """
+    query {
+        document(id: "%s") {
+            id
+            name
+            signatures {
+                public_id
+                name
+                email
+                action { name }
+                link { short_link }
+                signed { created_at }
+                viewed { created_at }
+                rejected { created_at }
+            }
+            files { original signed }
+        }
+    }
+    """ % doc_id
+
+    try:
+        resp = requests.post(
+            AUTENTIQUE_API_URL,
+            headers={
+                "Authorization": f"Bearer {AUTENTIQUE_TOKEN}",
+                "Content-Type": "application/json"
+            },
+            json={"query": query},
+            timeout=15
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            return True, data.get("data", {}).get("document", {})
+        return False, f"Erro HTTP {resp.status_code}"
+    except Exception as e:
+        return False, str(e)
 
 # ===== DATABASE (fallback local + Google Sheets) =====
 DB_FILE = os.path.join(os.path.dirname(__file__), "propostas_db.json")
@@ -1024,13 +1185,38 @@ with tab_nova:
 
             filename = f"Proposta - {nome_cliente}.docx"
             st.success(f"✅ Proposta gerada com sucesso!")
-            st.download_button(
-                label="⬇️ Baixar Proposta DOCX",
-                data=docx_bytes,
-                file_name=filename,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True
-            )
+
+            # Salvar bytes no session_state para enviar ao Autentique
+            st.session_state["_last_docx_bytes"] = docx_bytes
+            st.session_state["_last_docx_nome"] = nome_cliente
+
+            col_download, col_autentique = st.columns(2)
+            with col_download:
+                st.download_button(
+                    label="⬇️ Baixar Proposta DOCX",
+                    data=docx_bytes,
+                    file_name=filename,
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True
+                )
+            with col_autentique:
+                if st.button("✍️ Enviar para Assinatura (Autentique)", use_container_width=True, type="primary"):
+                    with st.spinner("Enviando para Autentique..."):
+                        ok, resultado = enviar_para_autentique(
+                            docx_bytes,
+                            f"Proposta - {nome_cliente}",
+                            nome_cliente
+                        )
+                    if ok:
+                        st.session_state["_autentique_resultado"] = resultado
+                        st.success("✅ Proposta enviada para assinatura!")
+                        link = resultado.get("autentique_link", "")
+                        if link:
+                            st.info(f"🔗 **Link para o cliente aprovar:**")
+                            st.code(link, language=None)
+                            st.caption("Copie o link acima e envie ao cliente para aprovação.")
+                    else:
+                        st.error(f"❌ Erro ao enviar: {resultado}")
 
             total_valor = sum(s["valor"] for s in svcs_parsed)
 
@@ -1057,7 +1243,9 @@ with tab_nova:
                 "valor": total_valor,
                 "status": "Enviada",
                 "obs": obs_internas,
-                "servicos_detalhados": json.dumps(svcs_detalhados, ensure_ascii=False)
+                "servicos_detalhados": json.dumps(svcs_detalhados, ensure_ascii=False),
+                "autentique_id": "",
+                "autentique_link": ""
             }
 
             if USING_SHEETS:
@@ -1345,6 +1533,94 @@ with tab_hist:
                         for entrada in entradas:
                             if entrada.strip():
                                 st.markdown(f"- {entrada}")
+
+                # ===== AUTENTIQUE: Assinatura digital =====
+                autentique_id_atual = str(p.get("autentique_id", "") or "").strip()
+                autentique_link_atual = str(p.get("autentique_link", "") or "").strip()
+                # Filtrar valores "nan" vindos do Sheets
+                if autentique_id_atual.lower() in ("nan", "none"):
+                    autentique_id_atual = ""
+                if autentique_link_atual.lower() in ("nan", "none"):
+                    autentique_link_atual = ""
+
+                col_aut1, col_aut2 = st.columns(2)
+                with col_aut1:
+                    if not autentique_id_atual:
+                        if st.button("✍️ Enviar para Assinatura", key=f"aut_send_{p['id']}", use_container_width=True):
+                            try:
+                                # Reconstruir dados mínimos para gerar o DOCX
+                                svcs_para_docx = []
+                                try:
+                                    sd = json.loads(p.get("servicos_detalhados", "[]") or "[]")
+                                    for s in sd:
+                                        svcs_para_docx.append({
+                                            "descricao": s.get("descricao", ""),
+                                            "valor": float(s.get("valor", 0) or 0),
+                                            "periodicidade": s.get("periodicidade", "Mensal")
+                                        })
+                                except Exception:
+                                    # Fallback: usa campo "servicos" (texto)
+                                    for desc in str(p.get("servicos", "")).split(";"):
+                                        if desc.strip():
+                                            svcs_para_docx.append({
+                                                "descricao": desc.strip(),
+                                                "valor": 0.0,
+                                                "periodicidade": "Mensal"
+                                            })
+
+                                dados_hist = {
+                                    "tratamento": p.get("tratamento", "Sr."),
+                                    "nome": p.get("cliente", ""),
+                                    "telefone": p.get("telefone", ""),
+                                    "email": p.get("email", ""),
+                                    "empresa": p.get("empresa", ""),
+                                    "vendedor": p.get("vendedor", ""),
+                                    "introducao": "prestação de serviços contábeis",
+                                    "servicos": svcs_para_docx,
+                                    "desconto_pct": 0,
+                                    "pix_cnpj": "",
+                                    "pix_titular": "",
+                                    "observacao": "",
+                                    "incluir_doc": False,
+                                    "texto_doc": "",
+                                    "logo_path": LOGO_PATH
+                                }
+
+                                with st.spinner("Gerando proposta e enviando ao Autentique..."):
+                                    docx_bytes_hist = gerar_docx(dados_hist)
+                                    ok_aut, resultado_aut = enviar_para_autentique(
+                                        docx_bytes_hist,
+                                        f"Proposta - {p.get('cliente', '')}",
+                                        p.get("cliente", "Cliente")
+                                    )
+
+                                if ok_aut:
+                                    aut_id = resultado_aut.get("autentique_id", "")
+                                    aut_link = resultado_aut.get("autentique_link", "")
+                                    if USING_SHEETS:
+                                        ok_save, msg_save = update_proposta_autentique(p["id"], aut_id, aut_link)
+                                        if not ok_save:
+                                            st.warning(f"Enviado, mas erro ao salvar: {msg_save}")
+                                    else:
+                                        for item in db:
+                                            if item["id"] == p["id"]:
+                                                item["autentique_id"] = aut_id
+                                                item["autentique_link"] = aut_link
+                                                break
+                                        save_db(db)
+                                    st.success("✅ Enviado para assinatura!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Erro: {resultado_aut}")
+                            except Exception as e:
+                                st.error(f"❌ Erro inesperado: {str(e)}")
+                    else:
+                        st.success("✅ Enviado ao Autentique")
+
+                with col_aut2:
+                    if autentique_link_atual:
+                        st.markdown("**🔗 Link do cliente:**")
+                        st.code(autentique_link_atual, language=None)
 
                 if st.button(f"🗑️ Excluir", key=f"del_{p['id']}"):
                     if USING_SHEETS:

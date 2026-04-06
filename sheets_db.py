@@ -24,7 +24,7 @@ SCOPES = [
 HEADERS_PROPOSTAS = [
     "id", "data", "cliente", "empresa", "tratamento", "telefone", "email",
     "vendedor", "servicos", "valor", "status", "obs", "motivo_perda", "historico",
-    "servicos_detalhados"
+    "servicos_detalhados", "autentique_id", "autentique_link"
 ]
 
 HEADERS_CONFIG = ["chave", "valor"]
@@ -64,7 +64,7 @@ def _get_spreadsheet():
 
 def _init_sheets_if_needed(sp):
     """Garante que as abas existam e que os headers estejam atualizados"""
-    if st.session_state.get("_sheets_initialized") and st.session_state.get("_sheets_migrated_v2"):
+    if st.session_state.get("_sheets_initialized") and st.session_state.get("_sheets_migrated_v3"):
         return True
 
     try:
@@ -97,6 +97,7 @@ def _init_sheets_if_needed(sp):
 
         st.session_state["_sheets_initialized"] = True
         st.session_state["_sheets_migrated_v2"] = True
+        st.session_state["_sheets_migrated_v3"] = True
         return True
     except Exception as e:
         st.session_state["_sheets_init_error"] = str(e)
@@ -355,6 +356,30 @@ def expirar_itens_pendentes(dias=30):
                 count += 1
 
     return count
+
+
+def update_proposta_autentique(proposta_id, autentique_id, autentique_link):
+    """Salva o ID e link do Autentique em uma proposta existente"""
+    sp = _get_spreadsheet()
+    if not sp:
+        return False, "Não foi possível conectar ao Google Sheets"
+
+    try:
+        _init_sheets_if_needed(sp)
+        ws = sp.worksheet("Propostas")
+        cell = ws.find(str(proposta_id), in_column=1)
+        if not cell:
+            return False, f"Proposta ID {proposta_id} não encontrada"
+
+        id_col = HEADERS_PROPOSTAS.index("autentique_id") + 1
+        link_col = HEADERS_PROPOSTAS.index("autentique_link") + 1
+        ws.update_cell(cell.row, id_col, str(autentique_id))
+        ws.update_cell(cell.row, link_col, str(autentique_link))
+
+        invalidate_cache("propostas")
+        return True, "OK"
+    except Exception as e:
+        return False, f"Erro ao atualizar Autentique: {str(e)}"
 
 
 def delete_proposta(proposta_id):
