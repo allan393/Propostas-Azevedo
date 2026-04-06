@@ -75,6 +75,7 @@ def enviar_para_autentique(docx_bytes, nome_documento, nome_cliente, email_signa
             "reminder": "WEEKLY",
             "footer": "BOTTOM",
             "refusable": True,
+            "sortable": True,
             "locale": {
                 "country": "BR",
                 "language": "pt-BR",
@@ -1607,8 +1608,8 @@ with tab_hist:
                                     "introducao": "prestação de serviços contábeis",
                                     "servicos": svcs_para_docx,
                                     "desconto_pct": 0,
-                                    "pix_cnpj": "",
-                                    "pix_titular": "",
+                                    "pix_cnpj": "35.304.872/0001-28",
+                                    "pix_titular": "AZEVEDO CONTABILIDADE LTDA",
                                     "observacao": "",
                                     "incluir_doc": False,
                                     "texto_doc": "",
