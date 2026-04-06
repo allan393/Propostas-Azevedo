@@ -128,13 +128,42 @@ def enviar_para_autentique(docx_bytes, nome_documento, nome_cliente, email_signa
         doc_id = doc_data.get("id", "")
 
         # Encontrar o link do cliente (signatário sem email = via link)
-        link_cliente = ""
-        for sig in doc_data.get("signatures", []):
-            if sig.get("action", {}).get("name") == "APPROVE" or (not sig.get("email")):
-                link_info = sig.get("link", {})
-                if link_info:
-                    link_cliente = link_info.get("short_link", "")
-                    break
+        def _extrair_link(sigs):
+            for sig in sigs:
+                action_name = (sig.get("action") or {}).get("name", "")
+                if action_name == "APPROVE" or (not sig.get("email")):
+                    link_info = sig.get("link") or {}
+                    sl = link_info.get("short_link", "")
+                    if sl:
+                        return sl
+            return ""
+
+        link_cliente = _extrair_link(doc_data.get("signatures", []))
+
+        # Autentique nem sempre retorna o short_link na mutation createDocument
+        # (gerado de forma assíncrona). Se vazio, faz query subsequente até 3x.
+        if not link_cliente and doc_id:
+            for _tentativa in range(3):
+                try:
+                    import time as _t
+                    _t.sleep(1.2)
+                    q = 'query { document(id: "%s") { id signatures { name email action { name } link { short_link } } } }' % doc_id
+                    r2 = requests.post(
+                        AUTENTIQUE_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {AUTENTIQUE_TOKEN}",
+                            "Content-Type": "application/json"
+                        },
+                        json={"query": q},
+                        timeout=15
+                    )
+                    if r2.status_code == 200:
+                        d2 = r2.json().get("data", {}).get("document", {}) or {}
+                        link_cliente = _extrair_link(d2.get("signatures", []))
+                        if link_cliente:
+                            break
+                except Exception:
+                    pass
 
         return True, {
             "autentique_id": doc_id,
@@ -1621,6 +1650,36 @@ with tab_hist:
                     if autentique_link_atual:
                         st.markdown("**🔗 Link do cliente:**")
                         st.code(autentique_link_atual, language=None)
+                    elif autentique_id_atual:
+                        # Documento existe no Autentique mas link ainda não foi salvo
+                        if st.button("🔄 Buscar link", key=f"aut_fetch_{p['id']}", use_container_width=True):
+                            with st.spinner("Buscando link no Autentique..."):
+                                ok_q, doc = consultar_autentique(autentique_id_atual)
+                            if ok_q and doc:
+                                novo_link = ""
+                                for sig in doc.get("signatures", []):
+                                    action_name = (sig.get("action") or {}).get("name", "")
+                                    if action_name == "APPROVE" or (not sig.get("email")):
+                                        link_info = sig.get("link") or {}
+                                        sl = link_info.get("short_link", "")
+                                        if sl:
+                                            novo_link = sl
+                                            break
+                                if novo_link:
+                                    if USING_SHEETS:
+                                        update_proposta_autentique(p["id"], autentique_id_atual, novo_link)
+                                    else:
+                                        for item in db:
+                                            if item["id"] == p["id"]:
+                                                item["autentique_link"] = novo_link
+                                                break
+                                        save_db(db)
+                                    st.success(f"✅ Link encontrado: {novo_link}")
+                                    st.rerun()
+                                else:
+                                    st.warning("Link ainda não disponível. Tente novamente em alguns segundos.")
+                            else:
+                                st.error(f"Erro ao consultar: {doc}")
 
                 if st.button(f"🗑️ Excluir", key=f"del_{p['id']}"):
                     if USING_SHEETS:
