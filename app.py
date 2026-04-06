@@ -921,6 +921,7 @@ with tab_nova:
         with col2:
             nome_cliente = st.text_input("Nome do Cliente *", placeholder="Ex: João da Silva")
             email_cliente = st.text_input("E-mail", placeholder="cliente@email.com")
+        nome_empresa = st.text_input("🏢 Nome da Empresa (opcional)", placeholder="Ex: Empresa XYZ LTDA — deixe em branco se ainda vai abrir")
 
         st.markdown("#### 👨‍💼 Vendedor")
         vendedor = st.selectbox("Vendedor responsável", vendedores_lista)
@@ -1005,6 +1006,7 @@ with tab_nova:
                 "nome": nome_cliente,
                 "telefone": telefone,
                 "email": email_cliente,
+                "empresa": nome_empresa,
                 "vendedor": vendedor,
                 "introducao": introducao or "prestação de serviços contábeis",
                 "servicos": svcs_parsed,
@@ -1046,6 +1048,7 @@ with tab_nova:
                 "id": int(datetime.now().timestamp() * 1000),
                 "data": datetime.now().strftime("%Y-%m-%d"),
                 "cliente": nome_cliente,
+                "empresa": nome_empresa,
                 "tratamento": tratamento,
                 "telefone": telefone,
                 "email": email_cliente,
@@ -1156,6 +1159,9 @@ with tab_hist:
                 with c1:
                     st.write(f"**Vendedor:** {p.get('vendedor', '-')}")
                     st.write(f"**Telefone:** {p.get('telefone', '-')}")
+                    empresa_hist = p.get('empresa', '')
+                    if empresa_hist and str(empresa_hist).strip() and str(empresa_hist) not in ('nan', 'None', ''):
+                        st.write(f"**Empresa:** {empresa_hist}")
                 with c2:
                     st.write(f"**E-mail:** {p.get('email', '-')}")
                     st.write(f"**Data:** {p.get('data', '-')}")
