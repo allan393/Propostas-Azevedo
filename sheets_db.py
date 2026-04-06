@@ -175,6 +175,23 @@ def load_propostas():
         return []
 
 
+def _get_col_idx(ws, header_name):
+    """Retorna o índice 1-based da coluna pelo nome real do header na planilha.
+    CRÍTICO: a planilha real pode ter headers em ordem diferente de HEADERS_PROPOSTAS
+    porque migrações apenas adicionam colunas no FINAL. Sempre usar esta função
+    em vez de HEADERS_PROPOSTAS.index() para evitar escrever na coluna errada."""
+    try:
+        actual_headers = ws.row_values(1)
+        if header_name in actual_headers:
+            return actual_headers.index(header_name) + 1
+    except Exception:
+        pass
+    # Fallback: ordem do Python (só usado se planilha vazia)
+    if header_name in HEADERS_PROPOSTAS:
+        return HEADERS_PROPOSTAS.index(header_name) + 1
+    return None
+
+
 def save_proposta(proposta):
     """Adiciona uma nova proposta ao Google Sheets"""
     sp = _get_spreadsheet()
@@ -185,7 +202,12 @@ def save_proposta(proposta):
 
     try:
         ws = sp.worksheet("Propostas")
-        row = [proposta.get(h, "") for h in HEADERS_PROPOSTAS]
+        # CRITICAL: usar a ordem REAL dos headers da planilha (que pode diferir
+        # de HEADERS_PROPOSTAS porque migrações só adicionam colunas no final)
+        actual_headers = ws.row_values(1)
+        if not actual_headers:
+            actual_headers = HEADERS_PROPOSTAS
+        row = [proposta.get(h, "") for h in actual_headers]
         ws.insert_rows([row], row=2)
         invalidate_cache("propostas")
         return True
@@ -208,12 +230,12 @@ def update_proposta_status(proposta_id, novo_status, motivo="", historico_anteri
         if not cell:
             return False, f"Proposta ID {proposta_id} não encontrada na planilha"
 
-        status_col = HEADERS_PROPOSTAS.index("status") + 1
+        status_col = _get_col_idx(ws, "status")
         ws.update_cell(cell.row, status_col, novo_status)
 
         # Salvar motivo de perda se status for "Não Fechou"
         if novo_status == "Não Fechou" and motivo:
-            motivo_col = HEADERS_PROPOSTAS.index("motivo_perda") + 1
+            motivo_col = _get_col_idx(ws, "motivo_perda")
             ws.update_cell(cell.row, motivo_col, motivo)
 
             # Adicionar ao histórico
@@ -224,7 +246,7 @@ def update_proposta_status(proposta_id, novo_status, motivo="", historico_anteri
                 historico_completo = f"{historico_anterior} | {nova_entrada}"
             else:
                 historico_completo = nova_entrada
-            hist_col = HEADERS_PROPOSTAS.index("historico") + 1
+            hist_col = _get_col_idx(ws, "historico")
             ws.update_cell(cell.row, hist_col, historico_completo)
 
         invalidate_cache("propostas")
@@ -262,7 +284,7 @@ def update_servicos_detalhados(proposta_id, servicos_detalhados_json):
         except Exception:
             pass
 
-        sd_col = HEADERS_PROPOSTAS.index("servicos_detalhados") + 1
+        sd_col = _get_col_idx(ws, "servicos_detalhados")
         ws.update_cell(cell.row, sd_col, servicos_detalhados_json)
 
         # Recalcular valor aprovado e atualizar coluna valor
@@ -272,7 +294,7 @@ def update_servicos_detalhados(proposta_id, servicos_detalhados_json):
             valor_aprovado = sum(
                 s.get("valor", 0) for s in servicos if s.get("status") == "Aprovado"
             )
-            valor_col = HEADERS_PROPOSTAS.index("valor") + 1
+            valor_col = _get_col_idx(ws, "valor")
             if valor_aprovado > 0:
                 # Itens têm valores reais — atualizar normalmente
                 ws.update_cell(cell.row, valor_col, valor_aprovado)
@@ -302,7 +324,7 @@ def update_servicos_detalhados(proposta_id, servicos_detalhados_json):
                 novo_status = "Fechou Parcial"
             else:
                 novo_status = "Enviada"
-            status_col = HEADERS_PROPOSTAS.index("status") + 1
+            status_col = _get_col_idx(ws, "status")
             ws.update_cell(cell.row, status_col, novo_status)
         except Exception:
             pass
@@ -371,8 +393,8 @@ def update_proposta_autentique(proposta_id, autentique_id, autentique_link):
         if not cell:
             return False, f"Proposta ID {proposta_id} não encontrada"
 
-        id_col = HEADERS_PROPOSTAS.index("autentique_id") + 1
-        link_col = HEADERS_PROPOSTAS.index("autentique_link") + 1
+        id_col = _get_col_idx(ws, "autentique_id")
+        link_col = _get_col_idx(ws, "autentique_link")
         ws.update_cell(cell.row, id_col, str(autentique_id))
         ws.update_cell(cell.row, link_col, str(autentique_link))
 
