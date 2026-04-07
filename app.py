@@ -33,7 +33,7 @@ USING_SHEETS = sheets_disponivel()
 AUTENTIQUE_API_URL = "https://api.autentique.com.br/v2/graphql"
 AUTENTIQUE_TOKEN = os.environ.get(
     "AUTENTIQUE_TOKEN",
-    "25746e6bd578d8b5d11713f69027e686c5e07c738d2b9a9b71c1df419f37a4ad"
+    "7c45877f6f64021d5ee7ea7d8b36caac5dfd795d4f1f9dddd6bf092a28eee8e6"
 )
 AUTENTIQUE_EMAIL_SIGNATARIO = "allan@azevedocontabilidade.com.br"
 
@@ -1275,7 +1275,9 @@ with tab_nova:
                 "obs": obs_internas,
                 "servicos_detalhados": json.dumps(svcs_detalhados, ensure_ascii=False),
                 "autentique_id": "",
-                "autentique_link": ""
+                "autentique_link": "",
+                "pix_cnpj": pix_opcao[1],
+                "pix_titular": pix_opcao[2]
             }
 
             if USING_SHEETS:
@@ -1608,8 +1610,8 @@ with tab_hist:
                                     "introducao": "prestação de serviços contábeis",
                                     "servicos": svcs_para_docx,
                                     "desconto_pct": 0,
-                                    "pix_cnpj": "35.304.872/0001-28",
-                                    "pix_titular": "AZEVEDO CONTABILIDADE LTDA",
+                                    "pix_cnpj": str(p.get("pix_cnpj", "") or "").strip() or "35.304.872/0001-28",
+                                    "pix_titular": str(p.get("pix_titular", "") or "").strip() or "AZEVEDO CONTABILIDADE LTDA",
                                     "observacao": "",
                                     "incluir_doc": False,
                                     "texto_doc": "",
