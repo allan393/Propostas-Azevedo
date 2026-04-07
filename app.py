@@ -86,11 +86,27 @@ def enviar_para_autentique(docx_bytes, nome_documento, nome_cliente, email_signa
         "signers": [
             {
                 "email": email_signatario,
-                "action": "SIGN"
+                "action": "SIGN",
+                "positions": [
+                    {
+                        "x": "39.17",
+                        "y": "1.34",
+                        "z": 2,
+                        "element": "SIGNATURE"
+                    }
+                ]
             },
             {
                 "name": nome_cliente,
-                "action": "APPROVE"
+                "action": "APPROVE",
+                "positions": [
+                    {
+                        "x": "40.30",
+                        "y": "16.76",
+                        "z": 2,
+                        "element": "SIGNATURE"
+                    }
+                ]
             }
         ],
         "file": None
