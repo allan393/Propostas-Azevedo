@@ -482,6 +482,12 @@ def gerar_docx(dados):
         p.paragraph_format.line_spacing = Pt(16)
 
     # ===== SIGNATURE (page 2) =====
+    # Quebra de pagina forcada: garante que todo o bloco de assinatura
+    # (Atenciosamente + Allan + cliente) sempre fique na pagina 2,
+    # independente da quantidade de servicos. Isso permite que o
+    # Autentique posicione as assinaturas em coordenadas fixas (z=2).
+    doc.add_page_break()
+
     # Linha dourada separadora
     add_horizontal_line(doc, "B8960C", 6)
 

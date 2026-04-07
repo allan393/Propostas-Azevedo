@@ -90,8 +90,8 @@ def enviar_para_autentique(docx_bytes, nome_documento, nome_cliente, email_signa
                 "positions": [
                     {
                         "x": "38.0",
-                        "y": "83.0",
-                        "z": 1,
+                        "y": "18.0",
+                        "z": 2,
                         "element": "SIGNATURE"
                     }
                 ]
@@ -102,7 +102,7 @@ def enviar_para_autentique(docx_bytes, nome_documento, nome_cliente, email_signa
                 "positions": [
                     {
                         "x": "38.0",
-                        "y": "6.5",
+                        "y": "33.0",
                         "z": 2,
                         "element": "SIGNATURE"
                     }
